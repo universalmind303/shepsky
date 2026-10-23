@@ -49,6 +49,14 @@ object Prefs {
             .apply()
     }
 
+    /** The terminal screen's pinch-zoomed font size, in sp. */
+    fun terminalFontSize(context: Context): Float =
+        prefs(context).getFloat("terminal_sp", 12f)
+
+    fun setTerminalFontSize(context: Context, sp: Float) {
+        prefs(context).edit().putFloat("terminal_sp", sp).apply()
+    }
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 }

@@ -73,7 +73,7 @@ fun OverviewScreen(
             LazyColumn(Modifier.fillMaxSize()) {
                 byWorkspace.forEach { (workspace, agents) ->
                     item(key = "ws-$workspace") {
-                        SectionRule(workspace, Modifier.padding(start = 16.dp, top = 14.dp, bottom = 2.dp))
+                        SectionRule(workspace, Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp))
                     }
                     items(agents.size, key = { agents[it].pane_id }) { index ->
                         AgentRow(agents[index], labelWidth, onClick = { onOpenAgent(agents[index].pane_id) })
@@ -91,9 +91,9 @@ private fun AgentRow(agent: AgentView, labelWidth: Int, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 64.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(
             buildAnnotatedString {

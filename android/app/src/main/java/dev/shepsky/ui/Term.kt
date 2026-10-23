@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -82,7 +83,7 @@ fun TopLine(
 ) {
     val t = LocalTerm.current
     Column(Modifier.background(t.bg).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) TapText("←", onBack, contentDescription = "Back") else Spacer(Modifier.width(16.dp))
             Text(
                 line,
@@ -163,7 +164,7 @@ fun KeyCap(
     }
     Box(
         modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = 52.dp)
             .widthIn(min = 48.dp)
             .background(if (hot && enabled) t.red else Color.Transparent)
             .border(1.dp, border)
@@ -209,6 +210,9 @@ fun TermField(
     mask: Boolean = false,
     maxLines: Int = 1,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    /** Space around the text that still counts as the field: any tap in it
+     *  focuses the field and opens the keyboard. */
+    contentPadding: PaddingValues = PaddingValues(vertical = 14.dp),
 ) {
     val t = LocalTerm.current
     val style = MaterialTheme.typography.bodyMedium.copy(color = if (enabled) t.fg else t.dim)
@@ -245,7 +249,7 @@ fun TermField(
             onTextLayout = { layout = it },
             modifier = modifier.onFocusChanged { focused = it.isFocused },
             decorationBox = { inner ->
-                Row(verticalAlignment = Alignment.Top) {
+                Row(Modifier.padding(contentPadding), verticalAlignment = Alignment.Top) {
                     Text("$prompt ", style = style.copy(color = if (enabled) t.accent else t.dim))
                     Box(
                         Modifier

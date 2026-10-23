@@ -106,7 +106,7 @@ fun PairScreen(
                 value = url,
                 onValueChange = { url = it },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
             Rule()
             FieldLabel("token")
@@ -115,7 +115,7 @@ fun PairScreen(
                 onValueChange = { token = it },
                 mask = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
             Rule()
 

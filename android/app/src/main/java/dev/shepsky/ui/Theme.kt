@@ -136,19 +136,22 @@ private val FlatShapes = Shapes(
     extraSmall = Square, small = Square, medium = Square, large = Square, extraLarge = Square,
 )
 
-/** A tight mono scale: 12 / 14 / 16. */
+/**
+ * A tight mono scale: 14 / 16 / 18. Monospace reads smaller than
+ * proportional type at the same size, so body text is 16, not 14.
+ */
 private val MonoType = run {
     fun style(size: Int, weight: FontWeight = FontWeight.Normal) =
-        TextStyle(fontFamily = Mono, fontSize = size.sp, lineHeight = (size + 6).sp, fontWeight = weight)
+        TextStyle(fontFamily = Mono, fontSize = size.sp, lineHeight = (size + 7).sp, fontWeight = weight)
     Typography(
-        displayLarge = style(16, FontWeight.Bold), displayMedium = style(16, FontWeight.Bold),
-        displaySmall = style(16, FontWeight.Bold),
-        headlineLarge = style(16, FontWeight.Bold), headlineMedium = style(16, FontWeight.Bold),
-        headlineSmall = style(16, FontWeight.Bold),
-        titleLarge = style(16, FontWeight.Bold), titleMedium = style(14, FontWeight.Bold),
-        titleSmall = style(14, FontWeight.Bold),
-        bodyLarge = style(16), bodyMedium = style(14), bodySmall = style(12),
-        labelLarge = style(14), labelMedium = style(12), labelSmall = style(12),
+        displayLarge = style(18, FontWeight.Bold), displayMedium = style(18, FontWeight.Bold),
+        displaySmall = style(18, FontWeight.Bold),
+        headlineLarge = style(18, FontWeight.Bold), headlineMedium = style(18, FontWeight.Bold),
+        headlineSmall = style(18, FontWeight.Bold),
+        titleLarge = style(18, FontWeight.Bold), titleMedium = style(16, FontWeight.Bold),
+        titleSmall = style(16, FontWeight.Bold),
+        bodyLarge = style(18), bodyMedium = style(16), bodySmall = style(14),
+        labelLarge = style(16), labelMedium = style(14), labelSmall = style(14),
     )
 }
 

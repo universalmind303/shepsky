@@ -246,7 +246,7 @@ private fun ReplyBar(
         Rule()
         val canPrompt = connected && !blocked
         Row(
-            Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            Modifier.padding(start = 16.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TermField(
@@ -259,7 +259,7 @@ private fun ReplyBar(
                     else -> "send a prompt"
                 },
                 maxLines = 4,
-                modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+                modifier = Modifier.weight(1f),
             )
             TapText(
                 "[⏎]",

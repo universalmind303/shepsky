@@ -20,11 +20,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.shepsky.core.ShepskyRepo
+import dev.shepsky.data.Prefs
 import dev.shepsky.core.ConnState
 import dev.shepsky.core.Frame
 import dev.shepsky.core.OpResult
@@ -83,8 +93,12 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
 
 @Composable
 private fun TerminalView(frame: Frame?) {
+    val context = LocalContext.current
     val vScroll = rememberScrollState()
     val hScroll = rememberScrollState()
+    // Pinch to zoom: real agents draw 130+ columns, which no single size
+    // makes readable on a phone. Remembered across sessions.
+    var fontSize by remember { mutableFloatStateOf(Prefs.terminalFontSize(context)) }
 
     // Stick to the bottom as new frames land.
     LaunchedEffect(frame) { vScroll.scrollTo(vScroll.maxValue) }
@@ -92,6 +106,10 @@ private fun TerminalView(frame: Frame?) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .pinchToZoom { zoom ->
+                fontSize = (fontSize * zoom).coerceIn(MIN_TERMINAL_SP, MAX_TERMINAL_SP)
+                Prefs.setTerminalFontSize(context, fontSize)
+            }
             .verticalScroll(vScroll)
             .horizontalScroll(hScroll)
             .padding(10.dp),
@@ -100,8 +118,30 @@ private fun TerminalView(frame: Frame?) {
         if (current == null) {
             BlinkingLine("waiting for frames")
         } else {
-            TerminalLines(current.lines)
+            TerminalLines(current.lines, fontSize = fontSize.sp)
         }
+    }
+}
+
+private const val MIN_TERMINAL_SP = 7f
+private const val MAX_TERMINAL_SP = 22f
+
+/**
+ * Two-finger pinch reports zoom factors; one finger is left alone for the
+ * scrolls underneath. Watches the Initial pass so a pinch doesn't also
+ * scroll.
+ */
+private fun Modifier.pinchToZoom(onZoom: (Float) -> Unit) = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.count { it.pressed } >= 2) {
+                val zoom = event.calculateZoom()
+                if (zoom != 1f) onZoom(zoom)
+                event.changes.forEach { it.consume() }
+            }
+        } while (event.changes.any { it.pressed })
     }
 }
 
@@ -109,12 +149,12 @@ private fun TerminalView(frame: Frame?) {
 private fun KeyBar(enabled: Boolean, onKey: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
         Rule()
+        // Every key visible: they share the width (~50dp each on a phone).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             listOf(
                 "esc" to "esc",
@@ -125,7 +165,7 @@ private fun KeyBar(enabled: Boolean, onKey: (String) -> Unit) {
                 "→" to "right",
                 "⏎" to "enter",
             ).forEach { (label, key) ->
-                KeyCap(label, onClick = { onKey(key) }, enabled = enabled)
+                KeyCap(label, onClick = { onKey(key) }, enabled = enabled, modifier = Modifier.weight(1f))
             }
         }
     }

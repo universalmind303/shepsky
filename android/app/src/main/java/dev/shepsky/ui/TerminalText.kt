@@ -32,7 +32,7 @@ import kotlinx.serialization.json.intOrNull
 fun TerminalLines(
     lines: List<List<Span>>,
     modifier: Modifier = Modifier,
-    fontSize: TextUnit = 10.sp,
+    fontSize: TextUnit = 12.sp,
 ) {
     val theme = LocalTerm.current
     Column(modifier) {
@@ -54,7 +54,7 @@ fun TerminalLines(
  * row that runs past it (like vim's `extends`), so a clipped frame says so.
  */
 @Composable
-fun ScrollingTerminalLines(lines: List<List<Span>>, fontSize: TextUnit = 10.sp) {
+fun ScrollingTerminalLines(lines: List<List<Span>>, fontSize: TextUnit = 12.sp) {
     val theme = LocalTerm.current
     val scroll = rememberScrollState()
     val measurer = rememberTextMeasurer()
