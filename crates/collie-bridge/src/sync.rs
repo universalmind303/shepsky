@@ -18,8 +18,9 @@ use std::time::Duration;
 
 use collie_core::herdr::{AgentStatusChanged, EventKind, classify_event};
 use collie_core::notify::{Notification, NotifyState};
+use collie_core::protocol::NoteView;
 use collie_core::store::{Patch, Store};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
 use crate::herdr_client::HerdrClient;
@@ -43,8 +44,13 @@ pub struct UiState {
 
 const RECENT_NOTES_CAP: usize = 6;
 
-/// Run forever, publishing state into `tx`.
-pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
+/// Run forever, publishing state into `tx` and pushing each notification into
+/// `notes_tx` (ignored when nobody listens).
+pub async fn run(
+    client: HerdrClient,
+    tx: watch::Sender<UiState>,
+    notes_tx: broadcast::Sender<NoteView>,
+) {
     let mutes = BTreeSet::new(); // per-agent mutes arrive with the phone app (M5)
     let mut notify_state = NotifyState::default();
     let mut recent_notes: Vec<Notification> = Vec::new();
@@ -63,7 +69,7 @@ pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
             }
         };
         let mut store = Store::from_snapshot(snapshot);
-        publish(&tx, &store, &mut notify_state, &mut recent_notes, &mutes);
+        publish(&tx, &notes_tx, &store, &mut notify_state, &mut recent_notes, &mutes);
 
         // 2. Subscribe for the current pane set.
         let pane_ids: Vec<String> = store.pane_ids.iter().cloned().collect();
@@ -108,7 +114,8 @@ pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
                             {
                                 match store.patch_agent_status(&change) {
                                     Patch::Changed => publish(
-                                        &tx, &store, &mut notify_state, &mut recent_notes, &mutes,
+                                        &tx, &notes_tx, &store, &mut notify_state,
+                                        &mut recent_notes, &mutes,
                                     ),
                                     Patch::Unchanged => {}
                                     Patch::UnknownPane => needs_resub = true,
@@ -131,7 +138,7 @@ pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
                     match client.snapshot().await {
                         Ok(snapshot) => {
                             store.apply_snapshot(snapshot);
-                            publish(&tx, &store, &mut notify_state, &mut recent_notes, &mutes);
+                            publish(&tx, &notes_tx, &store, &mut notify_state, &mut recent_notes, &mutes);
                         }
                         Err(err) => {
                             tracing::warn!(%err, "debounced resync failed; reconnecting");
@@ -149,7 +156,7 @@ pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
                             let fresh = Store::from_snapshot(snapshot);
                             if fresh != store {
                                 store = fresh;
-                                publish(&tx, &store, &mut notify_state, &mut recent_notes, &mutes);
+                                publish(&tx, &notes_tx, &store, &mut notify_state, &mut recent_notes, &mutes);
                                 // Pane set may have changed without us seeing
                                 // the event (e.g. buffer overflow window).
                                 let fresh_panes: Vec<String> =
@@ -172,6 +179,7 @@ pub async fn run(client: HerdrClient, tx: watch::Sender<UiState>) {
 
 fn publish(
     tx: &watch::Sender<UiState>,
+    notes_tx: &broadcast::Sender<NoteView>,
     store: &Store,
     notify_state: &mut NotifyState,
     recent_notes: &mut Vec<Notification>,
@@ -185,6 +193,9 @@ fn publish(
             workspace = note.workspace_label.as_deref().unwrap_or("-"),
             "notification"
         );
+    }
+    for note in &notes {
+        let _ = notes_tx.send(NoteView::from(note));
     }
     recent_notes.extend(notes);
     let overflow = recent_notes.len().saturating_sub(RECENT_NOTES_CAP);
