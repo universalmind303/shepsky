@@ -40,6 +40,10 @@ pub struct ServeState {
     pub hub: Arc<TerminalHub>,
     pub client: HerdrClient,
     pub token: String,
+    /// Demo mode: route input via unguarded `pane.send_*` instead of herdr's
+    /// `agent.*` methods (which only accept a REAL agent process in the
+    /// foreground). Only for the sandboxed demo session's fake agents.
+    pub demo_input: bool,
 }
 
 pub async fn serve(state: ServeState, bind: SocketAddr) -> Result<()> {
@@ -262,11 +266,17 @@ async fn handle_client_msg(
                 send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
                 return;
             }
-            run_herdr_op(
-                state, out_tx, op_id,
-                "agent.prompt",
-                json!({ "target": pane_id, "text": text }),
-            );
+            let ops = if state.demo_input {
+                vec![
+                    ("pane.send_text", json!({ "pane_id": pane_id, "text": text })),
+                    ("pane.send_keys", json!({ "pane_id": pane_id, "keys": ["enter"] })),
+                ]
+            } else {
+                // Guarded by herdr: refuses unless the real agent process is
+                // in the foreground and not waiting on a question.
+                vec![("agent.prompt", json!({ "target": pane_id, "text": text }))]
+            };
+            run_herdr_ops(state, out_tx, op_id, ops);
         }
 
         ClientMsg::SendKeys { pane_id, keys, op_id } => {
@@ -278,11 +288,13 @@ async fn handle_client_msg(
                 send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
                 return;
             }
-            run_herdr_op(
-                state, out_tx, op_id,
-                "agent.send_keys",
-                json!({ "target": pane_id, "keys": keys }),
-            );
+            let op = if state.demo_input {
+                ("pane.send_keys", json!({ "pane_id": pane_id, "keys": keys }))
+            } else {
+                // Guarded by herdr: only delivered to a live agent process.
+                ("agent.send_keys", json!({ "target": pane_id, "keys": keys }))
+            };
+            run_herdr_ops(state, out_tx, op_id, vec![op]);
         }
 
         ClientMsg::FocusAgent { pane_id, op_id } => {
@@ -290,10 +302,9 @@ async fn handle_client_msg(
                 send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
                 return;
             }
-            run_herdr_op(
+            run_herdr_ops(
                 state, out_tx, op_id,
-                "agent.focus",
-                json!({ "target": pane_id }),
+                vec![("agent.focus", json!({ "target": pane_id }))],
             );
         }
     }
@@ -303,24 +314,38 @@ fn agent_exists(ui_rx: &watch::Receiver<UiState>, pane_id: &str) -> bool {
     ui_rx.borrow().store.agents.contains_key(pane_id)
 }
 
-/// Run one herdr write op off the connection loop; report Ack/Error by op_id.
-fn run_herdr_op(
+/// Run herdr write calls in order off the connection loop (stopping at the
+/// first failure); report one Ack/Error for the whole op by op_id.
+fn run_herdr_ops(
     state: &Arc<ServeState>,
     out_tx: &mpsc::Sender<ServerMsg>,
     op_id: Option<String>,
-    method: &'static str,
-    params: serde_json::Value,
+    calls: Vec<(&'static str, serde_json::Value)>,
 ) {
     let client = state.client.clone();
     let out = out_tx.clone();
     tokio::spawn(async move {
-        let reply = match client.call(method, params).await {
+        let mut result = Ok(serde_json::Value::Null);
+        for (method, params) in calls {
+            result = client.call(method, params).await;
+            if result.is_err() {
+                break;
+            }
+        }
+        let reply = match result {
             Ok(_) => ServerMsg::Ack { op_id },
-            Err(err) => ServerMsg::Error {
-                code: "herdr_error".into(),
-                message: err.to_string(),
-                op_id,
-            },
+            Err(err) => {
+                // Surface herdr's own code (e.g. `agent_not_ready`) so the app
+                // can explain what happened; fall back to the full chain.
+                let (code, message) = match err
+                    .chain()
+                    .find_map(|e| e.downcast_ref::<collie_core::herdr::RpcError>())
+                {
+                    Some(rpc) => (rpc.code.clone(), rpc.message.clone()),
+                    None => ("herdr_error".to_string(), format!("{err:#}")),
+                };
+                ServerMsg::Error { code, message, op_id }
+            }
         };
         out.send(reply).await.ok();
     });

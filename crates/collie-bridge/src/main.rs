@@ -50,6 +50,11 @@ enum Command {
         /// `tailscale serve` (see README).
         #[arg(long, default_value = "127.0.0.1:7717")]
         bind: SocketAddr,
+        /// Demo mode, for scripts/demo-session.sh ONLY: deliver prompts and
+        /// keys with plain pane input instead of herdr's agent-guarded calls,
+        /// so the fake demo agents can be driven. Never use on a real session.
+        #[arg(long)]
+        demo: bool,
     },
     /// Print the connection details for pairing a phone.
     Pair {
@@ -87,13 +92,18 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Status { watch: false } => status_once(client).await,
         Command::Status { watch: true } => status_watch(client).await,
-        Command::Serve { bind } => serve(client, bind).await,
+        Command::Serve { bind, demo } => serve(client, bind, demo).await,
         Command::Pair { port } => pair(port),
     }
 }
 
-async fn serve(client: HerdrClient, bind: SocketAddr) -> Result<()> {
+async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool) -> Result<()> {
     let token = auth::load_or_create_token()?;
+    if demo {
+        eprintln!();
+        eprintln!("  !! DEMO MODE: input bypasses herdr's agent guard (pane.send_*).");
+        eprintln!("  !! Only point this at the sandboxed demo session, never a real one.");
+    }
 
     // Fail fast with a friendly message if herdr isn't reachable.
     match client.ping().await {
@@ -118,6 +128,7 @@ async fn serve(client: HerdrClient, bind: SocketAddr) -> Result<()> {
             hub,
             client,
             token,
+            demo_input: demo,
         },
         bind,
     )

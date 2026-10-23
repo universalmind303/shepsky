@@ -1,20 +1,22 @@
 #!/usr/bin/env node
-// Drive the sandboxed demo herdr session: create fake workspaces/panes,
-// report fake agents, and (with `scenario`) keep their statuses moving so the
-// phone app has something to show. Used by scripts/demo-session.sh.
+// Populate the sandboxed demo herdr session with fake agents
+// (scripts/fake-agent.mjs). Used by scripts/demo-session.sh; safe to re-run.
 //
-//   node scripts/demo.mjs setup      # create demo workspaces + fake agents
-//   node scripts/demo.mjs scenario   # loop: working -> blocked -> done -> ...
+//   HERDR_SOCKET_PATH=<demo session socket> node scripts/demo.mjs
 //
-// Env: HERDR_SOCKET_PATH must point at the DEMO session's socket.
+// Each fake agent runs in its own pane, reports its own state to herdr, and
+// reacts to prompts / quick replies from the phone. No model, no tokens.
 
 import net from "node:net";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const socketPath = process.env.HERDR_SOCKET_PATH;
 if (!socketPath) {
   console.error("HERDR_SOCKET_PATH must point at the demo session socket");
   process.exit(1);
 }
+const FAKE_AGENT = join(dirname(fileURLToPath(import.meta.url)), "fake-agent.mjs");
 
 let nextId = 1;
 function rpc(method, params) {
@@ -40,7 +42,7 @@ function rpc(method, params) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// One fake agent per pane: [workspace label, agent kind, title, output flavor]
+// [workspace label, agent kind, task, work flavor]
 const CAST = [
   ["api-service", "claude", "Fix flaky auth tests", "test"],
   ["api-service", "codex", "Add rate limiting to /v1/ingest", "build"],
@@ -49,133 +51,56 @@ const CAST = [
 
 async function panesByWorkspace() {
   const { snapshot } = await rpc("session.snapshot", {});
-  const labels = Object.fromEntries(
-    snapshot.workspaces.map((w) => [w.workspace_id, w.label]),
-  );
-  return snapshot.panes.map((p) => ({
-    pane_id: p.pane_id,
-    workspace: labels[p.workspace_id],
-  }));
+  const labels = Object.fromEntries(snapshot.workspaces.map((w) => [w.workspace_id, w.label]));
+  return snapshot.panes.map((p) => ({ pane_id: p.pane_id, workspace: labels[p.workspace_id] }));
 }
 
-async function setup() {
+async function ensureLayout() {
   const wanted = [...new Set(CAST.map(([ws]) => ws))];
   const { snapshot } = await rpc("session.snapshot", {});
   const existing = new Set(snapshot.workspaces.map((w) => w.label));
   for (const label of wanted) {
-    if (!existing.has(label)) {
-      await rpc("workspace.create", { label, cwd: process.env.HOME });
-    }
+    if (!existing.has(label)) await rpc("workspace.create", { label, cwd: process.env.HOME });
   }
-  // Each workspace starts with one pane; add more until each workspace has as
-  // many panes as cast members.
   for (const label of wanted) {
     const needed = CAST.filter(([ws]) => ws === label).length;
     let have = (await panesByWorkspace()).filter((p) => p.workspace === label);
     while (have.length < needed) {
-      await rpc("pane.split", {
-        direction: "right",
-        target_pane_id: have[0].pane_id,
-      });
+      await rpc("pane.split", { direction: "right", target_pane_id: have[0].pane_id });
       have = (await panesByWorkspace()).filter((p) => p.workspace === label);
     }
-  }
-
-  // Match cast to panes, set a title, start fake "work output", report agent.
-  const assignments = await assignCast();
-  for (const { pane_id, agent, title, flavor } of assignments) {
-    const script = fakeOutput(title, flavor);
-    await rpc("pane.send_text", { pane_id, text: `${script}\n` });
-    await rpc("pane.report_agent", {
-      pane_id,
-      source: "collie-demo",
-      agent,
-      state: "working",
-    });
-  }
-  console.log("demo session ready:");
-  for (const a of assignments) {
-    console.log(`  ${a.pane_id}  ${a.agent}  ${a.title}`);
   }
 }
 
 async function assignCast() {
-  const panes = await panesByWorkspace();
   const byWs = new Map();
-  for (const p of panes) {
+  for (const p of await panesByWorkspace()) {
     if (!byWs.has(p.workspace)) byWs.set(p.workspace, []);
     byWs.get(p.workspace).push(p);
   }
-  return CAST.map(([ws, agent, title, flavor]) => {
+  return CAST.map(([ws, kind, task, flavor]) => {
     const pane = byWs.get(ws)?.shift();
-    if (!pane) throw new Error(`no pane left in ${ws}; run setup first`);
-    return { pane_id: pane.pane_id, agent, title, flavor };
+    if (!pane) throw new Error(`no free pane in ${ws}`);
+    return { pane_id: pane.pane_id, kind, task, flavor };
   });
 }
 
-// A shell loop that looks like an agent working (sets the pane title too).
-function fakeOutput(title, flavor) {
-  const lines = {
-    test: [
-      "running test suite (attempt $i)…",
-      "  ✓ auth refresh under clock skew",
-      "  ✗ token revocation race — retrying",
-    ],
-    build: [
-      "compiling ingest pipeline (pass $i)…",
-      "  warning: rate limiter window unset",
-      "  wiring middleware + backoff",
-    ],
-    lint: [
-      "checking settings page (round $i)…",
-      "  updated 3 components to new tokens",
-      "  reflowing responsive layout",
-    ],
-  }[flavor];
-  const echoes = lines.map((l) => `echo "${l}"`).join("; sleep 1; ");
-  return (
-    `clear; printf '\\033]0;${title}\\007'; i=1; ` +
-    `while true; do ${echoes}; i=$((i+1)); sleep 2; done`
-  );
-}
+const shq = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 
-// working -> blocked -> idle(=done while unseen) -> working…, staggered.
-async function scenario() {
-  const assignments = await assignCast();
-  const phases = ["working", "blocked", "idle", "working"];
-  const messages = {
-    working: null,
-    blocked: "Allow running `cargo test`?",
-    idle: null,
-  };
-  let step = 0;
-  console.log("scenario running (ctrl-c to stop)…");
-  for (;;) {
-    for (let i = 0; i < assignments.length; i++) {
-      const { pane_id, agent } = assignments[i];
-      const state = phases[(step + i) % phases.length];
-      await rpc("pane.report_agent", {
-        pane_id,
-        source: "collie-demo",
-        agent,
-        state,
-        message: messages[state],
-      });
-      console.log(`  ${pane_id} -> ${state}`);
-    }
-    step += 1;
-    await sleep(20_000);
-  }
-}
-
-const mode = process.argv[2] ?? "setup";
 try {
-  if (mode === "setup") await setup();
-  else if (mode === "scenario") await scenario();
-  else {
-    console.error("usage: demo.mjs [setup|scenario]");
-    process.exit(2);
+  await ensureLayout();
+  const cast = await assignCast();
+  for (const { pane_id, kind, task, flavor } of cast) {
+    // Stop whatever ran there before (a previous demo agent, a shell loop).
+    await rpc("pane.send_keys", { pane_id, keys: ["ctrl+c"] }).catch(() => {});
+    await sleep(300);
+    const cmd = [process.execPath, FAKE_AGENT, "--kind", kind, "--task", task, "--flavor", flavor]
+      .map(shq)
+      .join(" ");
+    await rpc("pane.send_text", { pane_id, text: `clear; ${cmd}\n` });
   }
+  console.log("fake agents launched:");
+  for (const a of cast) console.log(`  ${a.pane_id.padEnd(6)} ${a.kind.padEnd(7)} ${a.task}`);
 } catch (err) {
   console.error(String(err));
   process.exit(1);
