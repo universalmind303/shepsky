@@ -2,7 +2,6 @@ package dev.collie.ui
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -192,7 +191,7 @@ private fun OutputPreview(frame: Frame?, onClick: () -> Unit, modifier: Modifier
             if (lines == null) {
                 Text("waiting for output…", color = t.dim, style = MaterialTheme.typography.bodySmall)
             } else {
-                TerminalLines(lines, Modifier.horizontalScroll(rememberScrollState()))
+                ScrollingTerminalLines(lines)
             }
         }
     }

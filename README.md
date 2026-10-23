@@ -184,7 +184,9 @@ scripts/demo-session.sh down
 
 0.1. Known gaps: the terminal is view + key bar (type prompts from the agent
 screen); one bridge per herdr session; per-agent mutes and QR pairing aren't
-built yet. Opening a *finished* agent marks it seen, which also switches herdr
+built yet. Notifications are live only: if an agent finishes or starts asking
+while your phone is offline, the overview catches up when it reconnects, but
+you won't get a notification for it. Opening a *finished* agent marks it seen, which also switches herdr
 on your Mac to that agent's tab. The protocol may change before 1.0
 (`PROTO_VERSION` guards it).
 
