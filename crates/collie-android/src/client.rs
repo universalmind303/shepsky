@@ -38,13 +38,24 @@ fn emit_conn(events: &EventSink, phase: &str, detail: Option<String>, attempt: u
     let _ = events.send(event.to_string());
 }
 
-fn emit_error(events: &EventSink, code: &str, message: &str) {
+fn emit_error(events: &EventSink, code: &str, message: &str, op_id: Option<String>) {
     let event = serde_json::json!({
         "type": "error",
         "code": code,
         "message": message,
+        "op_id": op_id,
     });
     let _ = events.send(event.to_string());
+}
+
+/// The `op_id` of a command, if it has one — echoed on local rejections so
+/// the UI can tie the failure to what the user typed.
+fn op_id_of(command: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(command)
+        .ok()?
+        .get("op_id")?
+        .as_str()
+        .map(str::to_string)
 }
 
 /// Runs until `commands` closes (= `stop()` from Kotlin).
@@ -112,7 +123,12 @@ pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: E
                 _ = &mut wait => break,
                 command = commands.recv() => {
                     match command {
-                        Some(_) => emit_error(&events, "not_connected", "bridge link is down; reconnecting"),
+                        Some(command) => emit_error(
+                            &events,
+                            "not_connected",
+                            "bridge link is down; reconnecting",
+                            op_id_of(&command),
+                        ),
                         None => return, // stopped
                     }
                 }
