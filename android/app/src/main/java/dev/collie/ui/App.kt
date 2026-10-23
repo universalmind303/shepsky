@@ -65,6 +65,7 @@ fun App() {
         is Screen.Agent -> AgentScreen(
             paneId = screen.paneId,
             onOpenTerminal = { stack = stack + Screen.Terminal(screen.paneId) },
+            onOpenSettings = { showPair = true },
             onBack = { stack = stack.dropLast(1) },
         )
         is Screen.Terminal -> TerminalScreen(

@@ -3,7 +3,6 @@ package dev.collie.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,19 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.collie.core.CollieRepo
-import dev.collie.core.Span
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +63,7 @@ fun TerminalScreen(paneId: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFF14141A))
+                .background(TerminalBackground)
                 .verticalScroll(vScroll)
                 .horizontalScroll(hScroll)
                 .padding(10.dp),
@@ -82,23 +72,12 @@ fun TerminalScreen(paneId: String, onBack: () -> Unit) {
             if (current == null) {
                 Text(
                     "waiting for frames…",
-                    color = Color(0xFF8A8F98),
+                    color = TerminalDim,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                 )
             } else {
-                Column {
-                    current.lines.forEach { line ->
-                        Text(
-                            text = line.toAnnotated(),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            lineHeight = 13.sp,
-                            softWrap = false,
-                            color = Color(0xFFD6D6DC),
-                        )
-                    }
-                }
+                TerminalLines(current.lines)
             }
         }
     }
@@ -131,25 +110,4 @@ private fun KeyBar(paneId: String) {
             }
         }
     }
-}
-
-private fun List<Span>.toAnnotated(): AnnotatedString = buildAnnotatedString {
-    for (span in this@toAnnotated) {
-        withStyle(
-            SpanStyle(
-                color = span.fg.toComposeColor() ?: Color.Unspecified,
-                background = span.bg.toComposeColor() ?: Color.Unspecified,
-                fontWeight = if (span.b) FontWeight.Bold else null,
-                fontStyle = if (span.i) FontStyle.Italic else null,
-                textDecoration = if (span.u) TextDecoration.Underline else null,
-            )
-        ) {
-            append(span.t)
-        }
-    }
-    if (this@toAnnotated.isEmpty()) append(" ")
-}
-
-private fun String?.toComposeColor(): Color? = this?.let {
-    runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
 }
