@@ -219,9 +219,10 @@ scripts/demo-session.sh down
 
 0.1. Known gaps: the terminal tab mirrors the screen but isn't a full
 terminal (no scrollback there; the chat tab has the history). The chat view
-covers Claude Code, Codex and pi; other agents get the terminal. A codex
-agent sharing a directory with another codex agent needs a named thread to be
-told apart. One bridge per herdr session; per-agent mutes and QR pairing
+covers Claude Code, Codex and pi; other agents get the terminal. Codex
+doesn't tell herdr which conversation a pane is in, so the bridge works it
+out from the directory, the thread name and what's on screen; a codex that
+hasn't started a conversation yet shows the terminal. One bridge per herdr session; per-agent mutes and QR pairing
 aren't built yet. Notifications are live only: if an agent finishes or starts asking
 while your phone is offline, the overview catches up when it reconnects, but
 you won't get a notification for it. Opening a *finished* agent marks it seen, which also switches herdr

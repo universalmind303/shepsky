@@ -10,7 +10,10 @@
 //! `<pane>.jsonl` instead (herdr only takes session reports from its
 //! official integrations).
 
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -22,6 +25,7 @@ use shepsky_core::transcript::{Ctx, Entry, Format, Window, parse_line};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
+use crate::herdr_client::HerdrClient;
 use crate::sync::UiState;
 
 const POLL: Duration = Duration::from_millis(400);
@@ -40,6 +44,13 @@ const MAX_LINE: u64 = 32 * 1024 * 1024;
 const MAX_FOLLOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Codex rollouts this recent are candidates when the agent didn't report.
 const CODEX_RECENT: Duration = Duration::from_secs(7 * 24 * 3600);
+/// At most this many codex conversations are compared with the screen.
+const CODEX_CANDIDATES: usize = 8;
+/// How much of each candidate's end is compared with the screen.
+const CODEX_TAIL: u64 = 2 * 1024 * 1024;
+/// How long a screen-matched choice stands before it's checked again (you
+/// can switch conversations inside codex).
+const CODEX_RECHECK: Duration = Duration::from_secs(30);
 
 /// One phone connection's watch on one chat.
 pub struct ChatWatch {
@@ -48,9 +59,15 @@ pub struct ChatWatch {
 }
 
 impl ChatWatch {
-    pub fn spawn(pane_id: String, ui_rx: watch::Receiver<UiState>, out: mpsc::Sender<ServerMsg>, places: Places) -> Self {
+    pub fn spawn(
+        pane_id: String,
+        client: HerdrClient,
+        ui_rx: watch::Receiver<UiState>,
+        out: mpsc::Sender<ServerMsg>,
+        places: Places,
+    ) -> Self {
         let (older, older_rx) = mpsc::channel(4);
-        let task = tokio::spawn(follow(pane_id, ui_rx, out, places, older_rx));
+        let task = tokio::spawn(follow(pane_id, client, ui_rx, out, places, older_rx));
         Self { task, older }
     }
 
@@ -92,6 +109,7 @@ struct Target {
 
 async fn follow(
     pane_id: String,
+    client: HerdrClient,
     ui_rx: watch::Receiver<UiState>,
     out: mpsc::Sender<ServerMsg>,
     places: Places,
@@ -100,6 +118,8 @@ async fn follow(
     let mut tail: Option<Tail> = None;
     let mut said_unavailable: Option<String> = None;
     let mut resolved_at: Option<Instant> = None;
+    let mut metas = CodexMetas::default();
+    let mut choice: Option<Choice> = None;
     let mut ticker = tokio::time::interval(POLL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -120,17 +140,28 @@ async fn follow(
 
         // Which transcript? Re-checked now and then: a new conversation
         // means a new file.
+        // Every few seconds (a new conversation means a new file), and right
+        // away after the transcript went missing; not on every poll while
+        // there's nothing to show.
         let due = resolved_at.is_none_or(|at| at.elapsed() >= RESOLVE_EVERY);
-        if tail.is_none() || due {
+        if due {
             resolved_at = Some(Instant::now());
-            let found = {
-                let ui = ui_rx.borrow();
-                ui.store.agents.get(&pane_id).cloned()
+            let agent = ui_rx.borrow().store.agents.get(&pane_id).cloned();
+            let resolved = match &agent {
+                Some(agent) => tokio::task::block_in_place(|| resolve(agent, &pane_id, &places, &ui_rx, &mut metas)),
+                None => Err("this agent is gone".to_string()),
+            };
+            let found = match resolved {
+                Ok(Resolved::One(target)) => Ok(target),
+                Ok(Resolved::Codex { candidates, lone }) => choose(&client, &pane_id, candidates, lone, &mut choice)
+                    .await
+                    .map(|path| Target { format: Format::Codex, path }),
+                Err(reason) => Err(reason),
             }
-            .ok_or_else(|| "this agent is gone".to_string())
-            .and_then(|agent| resolve(&agent, &pane_id, &places, &ui_rx).map(|t| (t, agent)));
+            .map(|target| (target, agent.unwrap_or_default()));
             match found {
                 Ok((target, agent)) if tail.as_ref().map(|t| &t.target) != Some(&target) => {
+                    tracing::debug!(pane_id, path = %target.path.display(), "chat transcript");
                     match tokio::task::block_in_place(|| Tail::open(target, &agent, &places)) {
                         Ok((t, items)) => {
                             page_log(&pane_id, &items, t.stats);
@@ -139,7 +170,10 @@ async fn follow(
                             said_unavailable = None;
                             if out.send(msg).await.is_err() { return }
                         }
-                        Err(err) => tracing::debug!(%err, pane_id, "couldn't open transcript"),
+                        Err(err) => {
+                            tracing::debug!(%err, pane_id, "couldn't open transcript");
+                            tail = None;
+                        }
                     }
                     continue;
                 }
@@ -167,6 +201,7 @@ async fn follow(
             Err(err) => {
                 tracing::debug!(%err, pane_id, "transcript changed under us");
                 tail = None;
+                resolved_at = None;
             }
         }
     }
@@ -190,14 +225,29 @@ fn chat(pane_id: &str, mode: ChatMode, items: Vec<ChatItem>, has_older: bool, un
 
 // --- finding the transcript --------------------------------------------------
 
-fn resolve(agent: &Agent, pane_id: &str, places: &Places, ui_rx: &watch::Receiver<UiState>) -> Result<Target, String> {
+/// What a pane's transcript turned out to be.
+enum Resolved {
+    One(Target),
+    /// Several codex conversations could be this agent's; what's on its
+    /// screen decides. `lone`: it's the only codex agent in its directory,
+    /// so the newest is a fair guess if the screen doesn't say.
+    Codex { candidates: Vec<PathBuf>, lone: bool },
+}
+
+fn resolve(
+    agent: &Agent,
+    pane_id: &str,
+    places: &Places,
+    ui_rx: &watch::Receiver<UiState>,
+    metas: &mut CodexMetas,
+) -> Result<Resolved, String> {
     let kind = agent.agent.as_deref().unwrap_or("agent");
     let format = Format::for_kind(kind).ok_or_else(|| format!("no chat view for {kind} agents yet"))?;
 
     if let Some(demo) = &places.demo {
         let path = demo.join(format!("{}.jsonl", pane_id.replace(':', "-")));
         return if path.is_file() {
-            Ok(Target { format, path })
+            Ok(Resolved::One(Target { format, path }))
         } else {
             Err("this demo agent has no transcript".into())
         };
@@ -211,33 +261,141 @@ fn resolve(agent: &Agent, pane_id: &str, places: &Places, ui_rx: &watch::Receive
         (Format::Claude, Some("id")) => claude_by_id(&root, value),
         (Format::Codex, Some("id")) => codex_by_id(&root, value),
         (Format::Pi, Some("id")) => pi_by_id(&root, value),
-        // herdr's codex integration doesn't always report: go by directory,
-        // and when several codex agents share one, by thread name.
+        // herdr's codex integration often can't report (codex hooks run in
+        // its shared app-server, which doesn't know the pane): the
+        // conversations started in the agent's directory, narrowed by the
+        // thread name in its title; the screen picks among what's left.
         (Format::Codex, _) => {
             let cwd = agent.cwd.as_deref().unwrap_or("");
-            let sharing = ui_rx
+            let lone = ui_rx
                 .borrow()
                 .store
                 .agents
                 .values()
                 .filter(|a| a.agent.as_deref() == Some("codex") && a.cwd.as_deref() == Some(cwd))
-                .count();
-            let threads = if sharing > 1 {
-                let name = codex_thread_name(agent);
-                let named = name.as_deref().map(|name| codex_threads_named(&places.home, name));
-                tracing::debug!(pane_id, ?name, threads = ?named, "codex agents share a directory");
-                match named {
-                    Some(ids) if !ids.is_empty() => Some(ids),
-                    _ => return Err("more than one codex agent works in this directory, so its conversation can't be told apart".into()),
-                }
-            } else {
-                None
+                .count()
+                <= 1;
+            let name = codex_thread_name(agent);
+            let named = name.as_deref().map(|n| codex_threads_named(&places.home, n)).filter(|ids| !ids.is_empty());
+            let mut candidates = codex_candidates(&root, cwd, named.as_deref(), metas);
+            if candidates.is_empty() && named.is_some() {
+                candidates = codex_candidates(&root, cwd, None, metas);
+            }
+            tracing::debug!(pane_id, ?name, candidates = candidates.len(), "codex conversations");
+            return match candidates.len() {
+                0 => Err("couldn't find this conversation's transcript".into()),
+                1 => Ok(Resolved::One(Target { format, path: candidates.remove(0) })),
+                _ => Ok(Resolved::Codex { candidates, lone }),
             };
-            codex_by_cwd(&root, cwd, threads.as_deref())
         }
         _ => return Err(format!("{kind} hasn't said which conversation it's in yet (is herdr's {kind} integration installed?)")),
     };
-    path.map(|path| Target { format, path }).ok_or_else(|| "couldn't find this conversation's transcript".into())
+    path.map(|path| Resolved::One(Target { format, path }))
+        .ok_or_else(|| "couldn't find this conversation's transcript".into())
+}
+
+/// A screen-matched pick among codex conversations, kept for a while.
+struct Choice {
+    candidates: Vec<PathBuf>,
+    chosen: Option<PathBuf>,
+    at: Instant,
+}
+
+/// Which of several codex conversations is on this pane's screen: the one
+/// whose end shares the most six-word runs with the visible text, if it's
+/// clearly ahead. Reading the visible screen is read-only.
+async fn choose(
+    client: &HerdrClient,
+    pane_id: &str,
+    candidates: Vec<PathBuf>,
+    lone: bool,
+    cache: &mut Option<Choice>,
+) -> Result<PathBuf, String> {
+    let cached = cache.as_ref().filter(|c| c.candidates == candidates && c.at.elapsed() < CODEX_RECHECK);
+    let chosen = match cached {
+        Some(c) => c.chosen.clone(),
+        None => {
+            let read = client
+                .call("pane.read", serde_json::json!({ "pane_id": pane_id, "source": "visible", "format": "text" }))
+                .await;
+            let screen = read.ok().and_then(|r| r["read"]["text"].as_str().map(str::to_string)).unwrap_or_default();
+            let chosen = tokio::task::block_in_place(|| best_match(&screen, &candidates));
+            tracing::debug!(pane_id, chosen = ?chosen.as_ref().map(|p| p.display().to_string()), "codex conversation by screen");
+            *cache = Some(Choice { candidates: candidates.clone(), chosen: chosen.clone(), at: Instant::now() });
+            chosen
+        }
+    };
+    match chosen {
+        Some(path) => Ok(path),
+        // The newest, when it's the only codex agent here.
+        None if lone => Ok(candidates[0].clone()),
+        None => Err("several codex conversations could be this agent's, and its screen doesn't say which".into()),
+    }
+}
+
+/// The candidate whose end best matches `screen`, if any clearly does.
+fn best_match(screen: &str, candidates: &[PathBuf]) -> Option<PathBuf> {
+    let wanted: HashSet<u64> = runs(screen).collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    let mut scores: Vec<(usize, &PathBuf)> = candidates
+        .iter()
+        .map(|path| {
+            let tail = std::fs::metadata(path)
+                .and_then(|m| File::open(path).and_then(|mut f| read_range(&mut f, m.len().saturating_sub(CODEX_TAIL), m.len())))
+                .unwrap_or_default();
+            let text = String::from_utf8_lossy(&tail);
+            let found: HashSet<u64> = runs(&text).filter(|r| wanted.contains(r)).collect();
+            (found.len(), path)
+        })
+        .collect();
+    scores.sort_by_key(|s| std::cmp::Reverse(s.0));
+    let (best, path) = scores[0];
+    let second = scores.get(1).map_or(0, |s| s.0);
+    (best >= 8 && best > 2 * second).then(|| path.clone())
+}
+
+/// Six-word runs of `text` (words of 3+ letters/digits), hashed. JSON escapes
+/// count as breaks, so a terminal line and its transcript text agree however
+/// either one wrapped.
+fn runs(text: &str) -> impl Iterator<Item = u64> + '_ {
+    let mut words: Vec<&str> = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    let mut start: Option<usize> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let word = b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80;
+        if word {
+            start.get_or_insert(i);
+            i += 1;
+            continue;
+        }
+        if let Some(s) = start.take()
+            && i - s >= 3
+        {
+            words.push(&text[s..i]);
+        }
+        // `\n`, `\"`…: the escaped character is a break too (a whole
+        // character, so a multi-byte one isn't split).
+        i += 1;
+        if b == b'\\'
+            && let Some(c) = text[i..].chars().next()
+        {
+            i += c.len_utf8();
+        }
+    }
+    if let Some(s) = start
+        && bytes.len() - s >= 3
+    {
+        words.push(&text[s..]);
+    }
+    (0..words.len().saturating_sub(5)).map(move |i| {
+        let mut h = DefaultHasher::new();
+        words[i..i + 6].hash(&mut h);
+        h.finish()
+    })
 }
 
 /// `path`, if it's a transcript file inside `root` (after resolving links).
@@ -278,40 +436,51 @@ fn codex_by_id(root: &Path, id: &str) -> Option<PathBuf> {
         .and_then(|p| inside(root, &p))
 }
 
-/// The newest recent rollout that started in `cwd` (and, given `threads`,
-/// is one of them).
-fn codex_by_cwd(root: &Path, cwd: &str, threads: Option<&[String]>) -> Option<PathBuf> {
+/// What a rollout's first line says: where it started, and whether it's an
+/// interactive conversation (not a headless `codex exec` run or a sub-agent).
+type CodexMetas = HashMap<PathBuf, Option<(String, bool)>>;
+
+/// Recent interactive rollouts that started in `cwd` (and, given `threads`,
+/// are one of them), newest first.
+fn codex_candidates(root: &Path, cwd: &str, threads: Option<&[String]>, metas: &mut CodexMetas) -> Vec<PathBuf> {
     if cwd.is_empty() {
-        return None;
+        return Vec::new();
     }
     let now = SystemTime::now();
-    let mut best: Option<(SystemTime, PathBuf)> = None;
+    let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
     for day in codex_days(root).into_iter().take(8) {
         for path in files(&day) {
             let Some(modified) = path.metadata().and_then(|m| m.modified()).ok() else { continue };
             if now.duration_since(modified).unwrap_or_default() > CODEX_RECENT {
                 continue;
             }
-            if best.as_ref().is_some_and(|(t, _)| *t >= modified) {
-                continue;
-            }
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if threads.is_some_and(|ids| !ids.iter().any(|id| name.ends_with(&format!("-{id}.jsonl")))) {
                 continue;
             }
-            if first_line(&path).is_some_and(|meta| meta["payload"]["cwd"] == cwd) {
-                best = Some((modified, path));
+            let meta = metas.entry(path.clone()).or_insert_with(|| {
+                let first = first_line(&path)?;
+                let p = &first["payload"];
+                let interactive = p["source"] != "exec"
+                    && p["source"].get("subagent").is_none()
+                    && p["parent_thread_id"].as_str().is_none_or(str::is_empty);
+                Some((p["cwd"].as_str()?.to_string(), interactive))
+            });
+            if meta.as_ref().is_some_and(|(dir, interactive)| *interactive && dir == cwd) {
+                found.push((modified, path));
             }
         }
     }
-    best.and_then(|(_, p)| inside(root, &p))
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
+    found.into_iter().take(CODEX_CANDIDATES).filter_map(|(_, p)| inside(root, &p)).collect()
 }
 
 /// Codex titles its terminal `<thread name> | <directory>` (herdr may cut
-/// it short with `...`).
+/// it short with `...`); a thread without a name yet is just `<directory>`.
 fn codex_thread_name(agent: &Agent) -> Option<String> {
     let title = agent.terminal_title_stripped.as_deref().or(agent.terminal_title.as_deref())?;
-    let name = title.split(" | ").next()?.trim();
+    let (name, _dir) = title.split_once(" | ")?;
+    let name = name.trim();
     (!name.is_empty()).then(|| name.to_string())
 }
 
@@ -721,24 +890,47 @@ mod tests {
     }
 
     #[test]
-    fn codex_by_directory_picks_the_newest_rollout_there() {
+    fn codex_candidates_are_interactive_conversations_in_the_directory() {
         let root = temp("codex").join("sessions");
         let day = root.join("2026/10/23");
         std::fs::create_dir_all(&day).unwrap();
-        let meta = |cwd: &str| format!("{}\n", serde_json::json!({"type": "session_meta", "payload": {"cwd": cwd}}));
-        std::fs::write(day.join("rollout-a-1.jsonl"), meta("/w/app")).unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        std::fs::write(day.join("rollout-b-2.jsonl"), meta("/w/other")).unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        std::fs::write(day.join("rollout-c-3.jsonl"), meta("/w/app")).unwrap();
+        let meta = |cwd: &str, source: &str, parent: &str| {
+            format!("{}\n", serde_json::json!({"type": "session_meta", "payload": {"cwd": cwd, "source": source, "parent_thread_id": parent}}))
+        };
+        let write = |name: &str, body: String| {
+            std::fs::write(day.join(name), body).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        write("rollout-a-1.jsonl", meta("/w/app", "vscode", ""));
+        write("rollout-b-2.jsonl", meta("/w/other", "cli", ""));
+        write("rollout-c-3.jsonl", meta("/w/app", "cli", ""));
+        write("rollout-d-4.jsonl", meta("/w/app", "exec", "")); // headless: never a pane's
+        write("rollout-e-5.jsonl", meta("/w/app", "cli", "3")); // a sub-agent's thread
+        let guardian = serde_json::json!({"type": "session_meta", "payload": {"cwd": "/w/app", "source": {"subagent": {"other": "guardian"}}}});
+        write("rollout-f-6.jsonl", format!("{guardian}\n")); // a reviewer sub-agent
 
-        let found = codex_by_cwd(&root, "/w/app", None).unwrap();
-        assert!(found.ends_with("rollout-c-3.jsonl"));
-        assert!(codex_by_cwd(&root, "/w/none", None).is_none());
-        // Two agents in /w/app: the thread name picks the older one.
+        let mut metas = CodexMetas::default();
+        let names = |paths: Vec<PathBuf>| -> Vec<String> {
+            paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(names(codex_candidates(&root, "/w/app", None, &mut metas)), ["rollout-c-3.jsonl", "rollout-a-1.jsonl"]);
+        assert!(codex_candidates(&root, "/w/none", None, &mut metas).is_empty());
         let only_1 = ["1".to_string()];
-        assert!(codex_by_cwd(&root, "/w/app", Some(&only_1)).unwrap().ends_with("rollout-a-1.jsonl"));
+        assert_eq!(names(codex_candidates(&root, "/w/app", Some(&only_1), &mut metas)), ["rollout-a-1.jsonl"]);
         assert!(codex_by_id(&root, "2").unwrap().ends_with("rollout-b-2.jsonl"));
+
+        // The screen picks the older conversation when that's what it shows.
+        let reply = |text: &str| format!("{}\n", serde_json::json!({"type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "AgentMessage", "content": [{"type": "text", "text": text}]}}}));
+        let shown = "The replay service now streams frames from the recorder, and the viewer seeks by timestamp without buffering the whole episode first";
+        std::fs::write(day.join("rollout-a-1.jsonl"), meta("/w/app", "vscode", "") + &reply(shown)).unwrap();
+        std::fs::write(day.join("rollout-c-3.jsonl"), meta("/w/app", "cli", "") + &reply("Something else entirely about release notes and version bumps for the mobile client build")).unwrap();
+        let screen = "• The replay service now streams frames from the\n  recorder, and the viewer seeks by timestamp without\n  buffering the whole episode first\n\n› ";
+        let candidates = vec![day.join("rollout-c-3.jsonl"), day.join("rollout-a-1.jsonl")];
+        assert_eq!(best_match(screen, &candidates), Some(day.join("rollout-a-1.jsonl")));
+        // A screen that matches nothing decides nothing.
+        assert_eq!(best_match("OpenAI Codex (v0.164.0) model: gpt directory: ~/w/app", &candidates), None);
+        // Odd escapes never split a character.
+        assert_eq!(runs("C:\\é one two three four five six seven \\").count(), 2);
 
         let home = root.parent().unwrap().to_path_buf();
         std::fs::create_dir_all(home.join(".codex")).unwrap();
@@ -751,5 +943,7 @@ mod tests {
         assert_eq!(codex_threads_named(&home, "Fix the p..."), ["1"]);
         let agent = Agent { terminal_title_stripped: Some("Ship it | app".into()), ..Agent::default() };
         assert_eq!(codex_thread_name(&agent).as_deref(), Some("Ship it"));
+        let unnamed = Agent { terminal_title_stripped: Some("worktree-brave-stone-...".into()), ..Agent::default() };
+        assert_eq!(codex_thread_name(&unnamed), None);
     }
 }

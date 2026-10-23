@@ -292,7 +292,13 @@ async fn handle_client_msg(
                 send_err("not_found", format!("no agent in pane {pane_id}"), None).await;
                 return;
             }
-            let watch = ChatWatch::spawn(pane_id.clone(), ui_rx.clone(), out_tx.clone(), state.chat_places.clone());
+            let watch = ChatWatch::spawn(
+                pane_id.clone(),
+                state.client.clone(),
+                ui_rx.clone(),
+                out_tx.clone(),
+                state.chat_places.clone(),
+            );
             chats.insert(pane_id, watch);
         }
 
