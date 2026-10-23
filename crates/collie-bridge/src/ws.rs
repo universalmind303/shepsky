@@ -123,6 +123,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
             proto: PROTO_VERSION,
             bridge_version: env!("CARGO_PKG_VERSION").into(),
             herdr_version: ui.store.herdr_version.clone(),
+            herdr_theme: Some(crate::herdr_theme::load()),
         }
     };
     out_tx.send(hello).await.ok();

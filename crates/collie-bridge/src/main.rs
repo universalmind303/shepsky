@@ -6,6 +6,7 @@
 
 mod auth;
 mod herdr_client;
+mod herdr_theme;
 mod render;
 mod subscription;
 mod sync;

@@ -37,7 +37,7 @@ protocol break: bump `PROTO_VERSION` in both places.
 
 | message | fields |
 |---|---|
-| `hello` | `proto`, `bridge_version`, `herdr_version` |
+| `hello` | `proto`, `bridge_version`, `herdr_version`, `herdr_theme?: {name, dark?, light?}` |
 | `state` | `state: {herdr_version, herdr_connected, workspaces[], agents[]}` |
 | `notify` | `note: {kind: needs_input\|finished, pane_id, agent_label, title?, workspace_label?}` |
 | `terminal_frame` | `pane_id`, `seq`, `frame: {cols, rows, lines: [[span]]}` |
@@ -46,9 +46,14 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `error` | `code`, `message`, `op_id?` |
 | `pong` | |
 
+`herdr_theme` is herdr's `[theme]` from its config.toml, by canonical name
+(`rose-pine`, `catppuccin-latte`…); `dark`/`light` are set when herdr's
+`auto_switch` is on. Re-read on every connection.
+
 `agents[]` is pre-sorted needs-attention-first:
 `{pane_id, terminal_id, status: idle|working|blocked|done|unknown, label,
-kind?, title?, workspace_id, workspace_label?, cwd?, focused}`.
+kind?, title?, workspace_id, workspace_label?, cwd?, focused}`. `cwd` shows
+the Mac's home directory as `~`.
 
 Terminal spans: `{t, fg?, bg?, b?, i?, u?}` — colors are `#rrggbb`, absent
 means the client's default fg/bg; flags absent = false. Lines are pre-trimmed

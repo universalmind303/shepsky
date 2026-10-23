@@ -16,3 +16,4 @@ tracing-subscriber.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"
 rand = "0.9"
+toml = { version = "0.8", default-features = false, features = ["parse"] }

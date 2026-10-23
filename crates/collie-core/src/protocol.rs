@@ -64,6 +64,9 @@ pub enum ServerMsg {
         proto: u32,
         bridge_version: String,
         herdr_version: String,
+        /// herdr's configured theme, so the phone can match it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        herdr_theme: Option<HerdrTheme>,
     },
     /// Full state; replaces everything the client holds.
     State { state: StateView },
@@ -86,6 +89,18 @@ pub enum ServerMsg {
         op_id: Option<String>,
     },
     Pong,
+}
+
+/// herdr's theme (`[theme]` in herdr's config.toml), by canonical name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HerdrTheme {
+    /// e.g. "rose-pine". One of herdr's built-in themes.
+    pub name: String,
+    /// With herdr's `auto_switch`: the themes for dark and light appearance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<String>,
 }
 
 /// Phone-facing projection of the session: only what the UI renders.
@@ -168,6 +183,7 @@ impl From<&Notification> for NoteView {
 
 impl StateView {
     pub fn project(store: &Store, herdr_connected: bool) -> Self {
+        let home = std::env::var("HOME").ok();
         let workspaces = store
             .workspaces
             .values()
@@ -193,7 +209,7 @@ impl StateView {
                 workspace_label: store
                     .workspace_label(&a.workspace_id)
                     .map(str::to_string),
-                cwd: a.cwd.clone(),
+                cwd: a.cwd.as_deref().map(|cwd| tildify(cwd, home.as_deref())),
                 focused: a.focused,
             })
             .collect();
@@ -203,6 +219,19 @@ impl StateView {
             workspaces,
             agents,
         }
+    }
+}
+
+/// `/Users/me/src/app` -> `~/src/app`: shorter on a phone screen, and keeps
+/// the Mac's user name out of screenshots.
+fn tildify(path: &str, home: Option<&str>) -> String {
+    match home.filter(|h| !h.is_empty() && *h != "/") {
+        Some(home) if path == home => "~".to_string(),
+        Some(home) => match path.strip_prefix(home) {
+            Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+            _ => path.to_string(),
+        },
+        None => path.to_string(),
     }
 }
 
@@ -282,6 +311,16 @@ mod tests {
         assert_eq!(state.agents[0].pane_id, "w1:p2");
         assert_eq!(state.agents[0].workspace_label.as_deref(), Some("myrepo"));
         assert_eq!(state.agents[1].label, "claude");
+    }
+
+    #[test]
+    fn tildify_only_whole_home_prefix() {
+        let home = Some("/Users/me");
+        assert_eq!(tildify("/Users/me", home), "~");
+        assert_eq!(tildify("/Users/me/src/app", home), "~/src/app");
+        assert_eq!(tildify("/Users/meow/src", home), "/Users/meow/src");
+        assert_eq!(tildify("/opt/x", home), "/opt/x");
+        assert_eq!(tildify("/opt/x", None), "/opt/x");
     }
 
     #[test]
