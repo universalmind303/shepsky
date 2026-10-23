@@ -56,8 +56,17 @@ of unstyled trailing blanks.
 
 ## Error codes
 
-`unauthorized`, `bad_message`, `not_found`, `too_many_watches`, `too_large`,
-`bad_keys`, `herdr_error` (message carries herdr's own code + text).
+Bridge: `unauthorized`, `bad_message`, `not_found`, `too_many_watches`,
+`too_large`, `bad_keys`.
+
+herdr's own codes pass through on failed writes, notably `agent_blocked`
+(prompt refused while the agent waits on a question), `agent_not_ready` (the
+pane's foreground process isn't the agent, so nothing was typed) and
+`agent_not_found`. Anything else without a herdr code is `herdr_error`.
+
+The phone's native core answers `not_connected` (with the command's `op_id`)
+while the link is down, and reports a rejected token as the final connection
+phase `unauthorized` instead of retrying.
 
 ## Trying it
 

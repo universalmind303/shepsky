@@ -17,6 +17,7 @@ use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::get;
+use collie_core::herdr::AgentStatus;
 use collie_core::protocol::{ClientMsg, PROTO_VERSION, ServerMsg, StateView};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
@@ -271,6 +272,12 @@ async fn handle_client_msg(
                 send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
                 return;
             }
+            if state.demo_input && agent_status(ui_rx, &pane_id) == Some(AgentStatus::Blocked) {
+                // Mirror herdr's agent-level guard so the demo behaves like
+                // the real thing (pane.send_text itself would type anyway).
+                send_err("agent_blocked", "agent is waiting on a question".into(), op_id).await;
+                return;
+            }
             let ops = if state.demo_input {
                 vec![
                     ("pane.send_text", json!({ "pane_id": pane_id, "text": text })),
@@ -317,6 +324,10 @@ async fn handle_client_msg(
 
 fn agent_exists(ui_rx: &watch::Receiver<UiState>, pane_id: &str) -> bool {
     ui_rx.borrow().store.agents.contains_key(pane_id)
+}
+
+fn agent_status(ui_rx: &watch::Receiver<UiState>, pane_id: &str) -> Option<AgentStatus> {
+    ui_rx.borrow().store.agents.get(pane_id).map(|a| a.agent_status)
 }
 
 /// Run herdr write calls in order off the connection loop (stopping at the

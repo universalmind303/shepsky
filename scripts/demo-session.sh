@@ -29,7 +29,7 @@ case "${1:-up}" in
     fi
     echo "creating fake agents…"
     HERDR_SOCKET_PATH="$SOCK" node "$REPO/scripts/demo.mjs"
-    echo "building + starting collie-bridge on 127.0.0.1:$PORT…"
+    echo "building + starting collie-bridge on 127.0.0.1:${PORT}…"
     cargo build -p collie-bridge --manifest-path "$REPO/Cargo.toml" >/dev/null
     pkill -f "collie-bridge --socket $SOCK serve" 2>/dev/null || true
     nohup "$REPO/target/debug/collie-bridge" --socket "$SOCK" serve --bind "127.0.0.1:$PORT" --demo \
