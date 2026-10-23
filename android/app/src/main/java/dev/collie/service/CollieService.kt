@@ -17,8 +17,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service that owns the native connection so notifications keep
- * arriving with the app closed. Lifecycle: started on pairing / app launch,
- * stopped from the pairing screen's Disconnect.
+ * arriving with the app closed. Lifecycle: started on pairing, app launch,
+ * boot and app update ([BootReceiver]); stopped from Settings' Disconnect.
  */
 class CollieService : Service() {
     private lateinit var scope: CoroutineScope
