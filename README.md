@@ -22,6 +22,8 @@ Your agents run in herdr on your Mac. shepsky puts them in your pocket:
 - **Unblock with one tap** — a notification opens the agent with its latest
   output on screen, so you read the question before answering 1/2/3/Enter/Esc.
 - **Send new prompts** and **watch the live terminal**, in your herdr theme.
+- **Start a new agent** (claude, codex or pi) in a new workspace or a new tab
+  of an existing one, right from the phone.
 - **Private by design** — your Mac talks to your phone directly (ideally over
   your tailnet). No cloud, no account, no third server.
 
@@ -139,6 +141,8 @@ scripts/demo-session.sh down
 - The fake agents (`scripts/fake-agent.mjs`) report their state to herdr like
   a real integration. They work through a task, sometimes stop to ask
   permission (answer with 1/2/3/Enter/Esc), and take new prompts when idle.
+- Agents you start from the app in the demo are fake ones too (the bridge's
+  `--demo-agent`).
 - The demo bridge runs with `--demo`. herdr only delivers agent input to a
   **real** agent process (see Security), which a Node script isn't, so the demo
   bridge types into the demo panes directly instead. It still refuses prompts
@@ -168,13 +172,20 @@ scripts/demo-session.sh down
   bearer token (`~/.config/shepsky/token`, created on first run, 0600) as the
   first message of every connection, and only ever calls an explicit
   allowlist of herdr methods: reads plus `agent.prompt`, `agent.send_keys`,
-  `agent.focus`, `pane.send_keys` and `pane.send_text`.
+  `agent.focus`, `pane.send_keys` and `pane.send_text`, and for starting
+  agents `workspace.create`, `tab.create`, `agent.start` (plus
+  `workspace.close`/`tab.close`, only to undo a start that failed).
 - **shepsky can't type into a shell.** Prompts go through herdr's
   `agent.prompt` and keys through `agent.send_keys`. herdr only delivers them
   when the pane's foreground process really is that agent, and refuses a
   prompt while the agent is waiting on a question. If the agent has exited
   and left a shell behind, nothing is typed; the app says so. The pane-level
   methods are used only by `--demo`, for the sandboxed demo session.
+- **Starting agents is fenced in.** The phone can start only claude, codex
+  or pi, with no command-line arguments (so no flags that skip their
+  permission prompts), and only in an existing directory inside your home
+  folder. The bridge checks all of this; the app only asks. Anyone holding
+  your token can start agents, so guard it like an SSH key.
 - **Remote access rides your tailnet.** Tailscale authenticates the devices
   and encrypts the transport, and `tailscale serve` adds real TLS. Never use
   `tailscale funnel` or a port-forward.

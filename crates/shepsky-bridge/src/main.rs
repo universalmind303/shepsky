@@ -8,6 +8,7 @@ mod auth;
 mod herdr_client;
 mod herdr_theme;
 mod render;
+mod start;
 mod subscription;
 mod sync;
 mod terminal;
@@ -18,7 +19,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::sync::{broadcast, watch};
 
@@ -56,6 +57,10 @@ enum Command {
         /// so the fake demo agents can be driven. Never use on a real session.
         #[arg(long)]
         demo: bool,
+        /// Demo mode: the command typed into a new pane when the phone starts
+        /// an agent (a fake one), instead of herdr's `agent.start`.
+        #[arg(long, requires = "demo")]
+        demo_agent: Option<String>,
     },
     /// Print the connection details for pairing a phone.
     Pair {
@@ -93,12 +98,12 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Status { watch: false } => status_once(client).await,
         Command::Status { watch: true } => status_watch(client).await,
-        Command::Serve { bind, demo } => serve(client, bind, demo).await,
+        Command::Serve { bind, demo, demo_agent } => serve(client, bind, demo, demo_agent).await,
         Command::Pair { port } => pair(port),
     }
 }
 
-async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool) -> Result<()> {
+async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool, demo_agent: Option<String>) -> Result<()> {
     let token = auth::load_or_create_token()?;
     if demo {
         eprintln!();
@@ -130,6 +135,8 @@ async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool) -> Result<()> 
             client,
             token,
             demo_input: demo,
+            demo_agent,
+            home: std::env::var_os("HOME").map(PathBuf::from).context("HOME is not set")?,
         },
         bind,
     )

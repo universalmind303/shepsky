@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,6 +27,7 @@ use tokio::task::JoinHandle;
 
 use crate::auth::token_matches;
 use crate::herdr_client::HerdrClient;
+use crate::start;
 use crate::sync::UiState;
 use crate::terminal::TerminalHub;
 
@@ -45,6 +47,11 @@ pub struct ServeState {
     /// `agent.*` methods (which only accept a REAL agent process in the
     /// foreground). Only for the sandboxed demo session's fake agents.
     pub demo_input: bool,
+    /// Demo mode: what to type into a new pane instead of starting a real
+    /// agent (scripts/fake-agent.mjs). `None` outside the demo.
+    pub demo_agent: Option<String>,
+    /// The Mac user's home; new agents may only start inside it.
+    pub home: PathBuf,
 }
 
 pub async fn serve(state: ServeState, bind: SocketAddr) -> Result<()> {
@@ -124,6 +131,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
             bridge_version: env!("CARGO_PKG_VERSION").into(),
             herdr_version: ui.store.herdr_version.clone(),
             herdr_theme: Some(crate::herdr_theme::load()),
+            start_kinds: crate::start::KINDS.iter().map(|k| k.to_string()).collect(),
         }
     };
     out_tx.send(hello).await.ok();
@@ -320,6 +328,28 @@ async fn handle_client_msg(
                 vec![("agent.focus", json!({ "target": pane_id }))],
             );
         }
+
+        ClientMsg::StartAgent { kind, name, workspace_id, cwd, label, op_id } => {
+            let request = start::Request { kind, name, workspace_id, cwd, label };
+            let checked = start::plan(request, &ui_rx.borrow().store, &state.home);
+            let plan = match checked {
+                Ok(plan) => plan,
+                Err((code, message)) => {
+                    send_err(code, message, op_id).await;
+                    return;
+                }
+            };
+            let client = state.client.clone();
+            let demo_agent = state.demo_agent.clone();
+            let out = out_tx.clone();
+            tokio::spawn(async move {
+                let reply = match start::run(&client, plan, demo_agent.as_deref()).await {
+                    Ok(pane_id) => ServerMsg::Ack { op_id, pane_id: Some(pane_id) },
+                    Err(err) => error_reply(&err, op_id),
+                };
+                out.send(reply).await.ok();
+            });
+        }
     }
 }
 
@@ -350,20 +380,22 @@ fn run_herdr_ops(
             }
         }
         let reply = match result {
-            Ok(_) => ServerMsg::Ack { op_id },
-            Err(err) => {
-                // Surface herdr's own code (e.g. `agent_not_ready`) so the app
-                // can explain what happened; fall back to the full chain.
-                let (code, message) = match err
-                    .chain()
-                    .find_map(|e| e.downcast_ref::<shepsky_core::herdr::RpcError>())
-                {
-                    Some(rpc) => (rpc.code.clone(), rpc.message.clone()),
-                    None => ("herdr_error".to_string(), format!("{err:#}")),
-                };
-                ServerMsg::Error { code, message, op_id }
-            }
+            Ok(_) => ServerMsg::Ack { op_id, pane_id: None },
+            Err(err) => error_reply(&err, op_id),
         };
         out.send(reply).await.ok();
     });
+}
+
+/// Surface herdr's own error code (e.g. `agent_not_ready`) so the app can
+/// explain what happened; fall back to the full chain.
+fn error_reply(err: &anyhow::Error, op_id: Option<String>) -> ServerMsg {
+    let (code, message) = match err
+        .chain()
+        .find_map(|e| e.downcast_ref::<shepsky_core::herdr::RpcError>())
+    {
+        Some(rpc) => (rpc.code.clone(), rpc.message.clone()),
+        None => ("herdr_error".to_string(), format!("{err:#}")),
+    };
+    ServerMsg::Error { code, message, op_id }
 }

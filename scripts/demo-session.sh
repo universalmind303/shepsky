@@ -50,8 +50,10 @@ case "${1:-up}" in
     echo "building + starting shepsky-bridge on 127.0.0.1:${PORT}…"
     cargo build -q -p shepsky-bridge --manifest-path "$REPO/Cargo.toml"
     pkill -f "shepsky-bridge --socket $SOCK serve" 2>/dev/null || true
+    # Agents started from the phone are fake ones too.
+    DEMO_AGENT="$(printf '%q %q --idle' "$(command -v node)" "$REPO/scripts/fake-agent.mjs")"
     nohup "$REPO/target/debug/shepsky-bridge" --socket "$SOCK" serve --bind "127.0.0.1:$PORT" --demo \
-      >"$RUN_DIR/bridge.log" 2>&1 &
+      --demo-agent "$DEMO_AGENT" >"$RUN_DIR/bridge.log" 2>&1 &
     echo $! >"$RUN_DIR/bridge.pid"
     sleep 1
     TOKEN="$("$REPO/target/debug/shepsky-bridge" pair --port "$PORT" | awk '/token:/ {print $2}')"

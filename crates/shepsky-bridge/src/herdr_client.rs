@@ -31,12 +31,19 @@ const ALLOWED_METHODS: &[&str] = &[
     "workspace.list",
     "tab.list",
     "events.subscribe",
-    // writes (the only ones, by design)
+    // input (the only other writes, by design)
     "agent.prompt",
     "agent.send_keys",
     "agent.focus",
     "pane.send_keys",
     "pane.send_text",
+    // starting agents from the phone (guardrails in start.rs); the closes
+    // only ever undo a workspace/tab start.rs just made for a failed start
+    "workspace.create",
+    "tab.create",
+    "agent.start",
+    "workspace.close",
+    "tab.close",
 ];
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);

@@ -9,6 +9,7 @@
 //   working  -> prompts are queued for next
 //
 //   node scripts/fake-agent.mjs --kind claude --task "Fix flaky auth tests" --flavor test
+//   node scripts/fake-agent.mjs --kind codex --idle   # wait for a prompt first
 //
 // No network, no model, no tokens. Ctrl-C to quit.
 
@@ -258,5 +259,11 @@ process.on("SIGTERM", quit);
 // --- go ----------------------------------------------------------------------
 process.stdout.write("\x1b[2J\x1b[H");
 out(c.bold(`${KIND} (fake)`) + c.dim(" — shepsky demo agent · ctrl-c to quit"));
-// Stagger agents so their statuses don't all move in lockstep.
-setTimeout(() => startWork(TASK), 1000 + Math.random() * 6000);
+if (args.includes("--idle")) {
+  // Freshly started, like an agent the phone just launched.
+  report("idle");
+  setTitle("ready");
+} else {
+  // Stagger agents so their statuses don't all move in lockstep.
+  setTimeout(() => startWork(TASK), 1000 + Math.random() * 6000);
+}

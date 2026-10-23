@@ -49,6 +49,25 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         op_id: Option<String>,
     },
+    /// Start an agent: in a new tab of `workspace_id`, or else in a new
+    /// workspace at `cwd` (named `label`, default: the directory's name). The
+    /// `Ack` carries the new agent's `pane_id`.
+    StartAgent {
+        /// One of `Hello::start_kinds`.
+        kind: String,
+        /// herdr agent name; the bridge picks a free one (`claude-2`…) if absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace_id: Option<String>,
+        /// A directory under the Mac's home; `~/…` works.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        op_id: Option<String>,
+    },
     Ping,
 }
 
@@ -67,6 +86,9 @@ pub enum ServerMsg {
         /// herdr's configured theme, so the phone can match it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         herdr_theme: Option<HerdrTheme>,
+        /// Agent kinds `StartAgent` accepts (empty: starting isn't offered).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        start_kinds: Vec<String>,
     },
     /// Full state; replaces everything the client holds.
     State { state: StateView },
@@ -81,6 +103,9 @@ pub enum ServerMsg {
     Ack {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         op_id: Option<String>,
+        /// For `StartAgent`: the new agent's pane.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pane_id: Option<String>,
     },
     Error {
         code: String,
@@ -112,6 +137,10 @@ pub struct StateView {
     pub workspaces: Vec<WorkspaceView>,
     /// Sorted needs-attention first (same order the UI shows).
     pub agents: Vec<AgentView>,
+    /// Where a new workspace might start: the directories your workspaces
+    /// and agents are in, most-used first, with `~` for home.
+    #[serde(default)]
+    pub places: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -213,11 +242,21 @@ impl StateView {
                 focused: a.focused,
             })
             .collect();
+        let mut uses: std::collections::BTreeMap<String, usize> = Default::default();
+        let worktrees = store.workspaces.values().filter_map(|w| w.worktree.as_ref()?.checkout_path.as_deref());
+        let agent_dirs = store.agents.values().filter_map(|a| a.cwd.as_deref());
+        for dir in worktrees.chain(agent_dirs) {
+            *uses.entry(tildify(dir, home.as_deref())).or_default() += 1;
+        }
+        let mut places: Vec<(String, usize)> = uses.into_iter().collect();
+        places.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
         StateView {
             herdr_version: store.herdr_version.clone(),
             herdr_connected,
             workspaces,
             agents,
+            places: places.into_iter().map(|(dir, _)| dir).collect(),
         }
     }
 }
@@ -327,6 +366,30 @@ mod tests {
     }
 
     #[test]
+    fn places_are_most_used_first() {
+        let agent = |pane: &str, cwd: &str| Agent {
+            pane_id: pane.into(),
+            workspace_id: "w1".into(),
+            cwd: Some(cwd.into()),
+            ..Agent::default()
+        };
+        let snapshot = Snapshot {
+            workspaces: vec![Workspace {
+                workspace_id: "w1".into(),
+                worktree: Some(crate::herdr::Worktree {
+                    checkout_path: Some("/srv/b".into()),
+                    ..Default::default()
+                }),
+                ..Workspace::default()
+            }],
+            agents: vec![agent("w1:p1", "/srv/a"), agent("w1:p2", "/srv/b"), agent("w1:p3", "/srv/c")],
+            ..Snapshot::default()
+        };
+        let state = StateView::project(&Store::from_snapshot(snapshot), true);
+        assert_eq!(state.places, ["/srv/b", "/srv/a", "/srv/c"]);
+    }
+
+    #[test]
     fn tildify_only_whole_home_prefix() {
         let home = Some("/Users/me");
         assert_eq!(tildify("/Users/me", home), "~");
@@ -378,6 +441,14 @@ mod tests {
             serde_json::to_string(&span).unwrap(),
             r##"{"t":"x","fg":1,"bg":"#0a141e","r":true}"##
         );
+
+        let start: ClientMsg = serde_json::from_str(
+            r#"{"type":"start_agent","kind":"claude","cwd":"~/src/app","op_id":"2"}"#,
+        )
+        .unwrap();
+        assert!(matches!(start, ClientMsg::StartAgent { ref kind, workspace_id: None, .. } if kind == "claude"));
+        let ack = ServerMsg::Ack { op_id: Some("2".into()), pane_id: Some("w3:p1".into()) };
+        assert_eq!(serde_json::to_string(&ack).unwrap(), r#"{"type":"ack","op_id":"2","pane_id":"w3:p1"}"#);
 
         // Unknown fields must not break parsing (forward compat).
         let msg: ServerMsg =

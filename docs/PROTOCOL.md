@@ -31,24 +31,28 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `prompt` | `pane_id`, `text`, `op_id?` | submit a prompt to the agent (≤ 8 KiB) |
 | `send_keys` | `pane_id`, `keys[]`, `op_id?` | e.g. `["1"]`, `["enter"]`, `["esc"]` (≤ 32 keys) |
 | `focus_agent` | `pane_id`, `op_id?` | marks looked-at; clears `done` |
+| `start_agent` | `kind`, `workspace_id?`, `cwd?`, `name?`, `label?`, `op_id?` | start an agent; `ack` carries its `pane_id` |
 | `ping` | | → `pong` |
 
 ## bridge → phone
 
 | message | fields |
 |---|---|
-| `hello` | `proto`, `bridge_version`, `herdr_version`, `herdr_theme?: {name, dark?, light?}` |
-| `state` | `state: {herdr_version, herdr_connected, workspaces[], agents[]}` |
+| `hello` | `proto`, `bridge_version`, `herdr_version`, `herdr_theme?: {name, dark?, light?}`, `start_kinds?` |
+| `state` | `state: {herdr_version, herdr_connected, workspaces[], agents[], places[]}` |
 | `notify` | `note: {kind: needs_input\|finished, pane_id, agent_label, title?, workspace_label?}` |
 | `terminal_frame` | `pane_id`, `seq`, `frame: {cols, rows, lines: [[span]]}` |
 | `watch_error` | `pane_id`, `message` (watch stays alive; pane may be closing) |
-| `ack` | `op_id?` |
+| `ack` | `op_id?`, `pane_id?` |
 | `error` | `code`, `message`, `op_id?` |
 | `pong` | |
 
 `herdr_theme` is herdr's `[theme]` from its config.toml, by canonical name
 (`rose-pine`, `catppuccin-latte`…); `dark`/`light` are set when herdr's
 `auto_switch` is on. Re-read on every connection.
+
+`places[]` are directories worth offering for a new workspace: where your
+workspaces and agents are, most-used first, home as `~`.
 
 `agents[]` is pre-sorted needs-attention-first:
 `{pane_id, terminal_id, status: idle|working|blocked|done|unknown, label,
@@ -62,18 +66,37 @@ absent means the theme's default fg/bg. `r` is reverse video: the phone swaps
 fg and bg after resolving them. Flags absent = false. Lines are pre-trimmed
 of unstyled trailing blanks.
 
+## Starting agents
+
+`start_agent` opens a new tab in `workspace_id`, or (without one) a new
+workspace at `cwd` named `label` (default: the directory's name), and starts
+a `kind` agent there with herdr's `agent.start`. The bridge's guardrails:
+
+- `kind` must be one of `hello.start_kinds` (`claude`, `codex`, `pi`);
+- no command-line arguments, so agents keep their usual permission prompts;
+- `cwd` (`~`, `~/…` or absolute) must be an existing directory inside the
+  Mac user's home, after resolving symlinks;
+- `name` follows herdr's rule (lowercase letter, then lowercase letters,
+  digits, `-`, `_`; ≤ 32); absent, the bridge picks `claude`, `claude-2`…
+
+If the agent doesn't start, the workspace/tab made for it is closed again.
+With `serve --demo --demo-agent <cmd>`, the bridge types `<cmd> --kind <kind>`
+into the new pane instead (the demo's fake agents).
+
 Proto 2 (theme-aware colors and `r`) replaced proto 1's fixed xterm hex for
 ANSI 0–15 and pre-swapped reverse video.
 
 ## Error codes
 
 Bridge: `unauthorized`, `bad_message`, `not_found`, `too_many_watches`,
-`too_large`, `bad_keys`.
+`too_large`, `bad_keys`, and for `start_agent`: `unsupported_kind`,
+`bad_directory`, `invalid_agent_name`.
 
 herdr's own codes pass through on failed writes, notably `agent_blocked`
 (prompt refused while the agent waits on a question), `agent_not_ready` (the
 pane's foreground process isn't the agent, so nothing was typed) and
-`agent_not_found`. Anything else without a herdr code is `herdr_error`.
+`agent_not_found`; for `start_agent`, `agent_name_taken` and
+`agent_pane_busy`. Anything else without a herdr code is `herdr_error`.
 
 The phone's native core answers `not_connected` (with the command's `op_id`)
 while the link is down, and reports a rejected token as the final connection

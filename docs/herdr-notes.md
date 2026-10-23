@@ -87,4 +87,12 @@ error lists every supported method).
 `agent.prompt` (can submit and wait: optional `wait{until,timeout_ms}`),
 `agent.send_keys`, `agent.focus` (clears `done`), `pane.send_keys`,
 `pane.send_text`. Key strings like `enter`, `esc`, `ctrl+h` are accepted;
-`prefix+` bindings are not. Nothing else is callable — see `ALLOWED_METHODS`.
+`prefix+` bindings are not. For starting agents (`start.rs`):
+`workspace.create {cwd, label, focus}` and `tab.create {workspace_id, cwd?,
+focus}` both answer with `root_pane.pane_id`; `agent.start {name, kind,
+pane_id}` types the kind's executable into that pane's shell and returns at
+once. A brand-new pane answers `agent_pane_busy`/`agent_pane_unavailable` until
+its shell is at a prompt, so the bridge retries for a few seconds. Names are
+unique per session (`agent_name_taken`). `workspace.close {workspace_id}` and
+`tab.close {tab_id}` undo a failed start. Nothing else is callable — see
+`ALLOWED_METHODS`.
