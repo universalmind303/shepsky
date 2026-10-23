@@ -101,7 +101,7 @@ fun PairScreen(
                 )
             }
 
-            FieldLabel("url", hint = "emulator: ws://10.0.2.2:7717/ws · tailscale: wss://<mac>.<tailnet>.ts.net/ws")
+            FieldLabel("url", hint = "emulator: ws://10.0.2.2:7717/ws · tailscale: wss://<mac>.<tailnet>.ts.net:7443/ws")
             TermField(
                 value = url,
                 onValueChange = { url = it },

@@ -145,8 +145,9 @@ fn pair(port: u16) -> Result<()> {
     println!();
     println!("  URL depends on where the phone is:");
     println!("    Android emulator on this Mac:  ws://10.0.2.2:{port}/ws");
-    println!("    Tailscale (recommended):       wss://<this-mac>.<tailnet>.ts.net/ws");
-    println!("      one-time setup: tailscale serve --bg --https=443 http://127.0.0.1:{port}");
+    println!("    Tailscale (recommended):       wss://<this-mac>.<tailnet>.ts.net:7443/ws");
+    println!("      one-time setup: tailscale serve --bg --https=7443 http://127.0.0.1:{port}");
+    println!("      (7443 stays tailnet-only: Funnel only runs on 443, 8443 and 10000)");
     println!("    Same Wi-Fi (no TLS):           ws://<this-mac's-LAN-IP>:{port}/ws");
     println!("      requires: shepsky-bridge serve --bind 0.0.0.0:{port}  (token is the only gate — prefer Tailscale)");
     println!();

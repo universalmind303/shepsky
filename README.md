@@ -88,10 +88,13 @@ It binds `127.0.0.1:7717` and prints what it's doing. `shepsky-bridge status
 | Phone is… | URL to pair with | Setup |
 |---|---|---|
 | Android emulator on the Mac | `ws://10.0.2.2:7717/ws` | nothing |
-| On your tailnet (recommended) | `wss://<mac>.<tailnet>.ts.net/ws` | `tailscale serve --bg --https=443 http://127.0.0.1:7717` |
+| On your tailnet (recommended) | `wss://<mac>.<tailnet>.ts.net:7443/ws` | `tailscale serve --bg --https=7443 http://127.0.0.1:7717` |
 | Same Wi-Fi | `ws://<mac-LAN-IP>:7717/ws` | `shepsky-bridge serve --bind 0.0.0.0:7717` — token is the only gate, prefer Tailscale |
 
-Never expose the port publicly (`tailscale funnel`, port-forwards).
+Never expose the port publicly (`tailscale funnel`, port-forwards). Port 7443
+keeps the bridge tailnet-only even if you already serve other things: Funnel
+only works on 443, 8443 and 10000, so a bridge on 7443 can't end up public by
+accident (check with `tailscale serve status`).
 
 **3. Build + install the app** (phone in developer mode, USB attached):
 
