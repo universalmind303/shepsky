@@ -41,7 +41,10 @@ const stamp = () => c.dim(new Date().toTimeString().slice(0, 8));
 const setTitle = (t) => process.stdout.write(`\x1b]0;${t}\x07`);
 
 // --- herdr reporting ---------------------------------------------------------
-let seq = 0;
+// herdr ignores a report unless its seq beats the last one for this pane, and
+// a relaunched agent shares the pane with its predecessor: count from the
+// clock, not from zero.
+let seq = Date.now();
 function report(state, message) {
   if (!SOCKET || !PANE) return;
   const conn = net.createConnection(SOCKET);
