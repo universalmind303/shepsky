@@ -5,3 +5,7 @@ android/.gradle/
 android/app/build/
 android/local.properties
 android/app/src/main/jniLibs/
+
+# iOS (XcodeGen output and builds)
+ios/Shepsky.xcodeproj/
+ios/build/

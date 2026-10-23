@@ -111,7 +111,6 @@ function colorLine(line) {
 let state = "idle";
 let workTimer = null;
 let queued = [];
-let round = 0;
 
 function startWork(what) {
   state = "working";
@@ -121,9 +120,8 @@ function startWork(what) {
   out(`${stamp()} ${c.cyan("●")} ${c.bold(what)}`);
   const steps = WORK[FLAVOR] ?? WORK.test;
   let i = 0;
-  // Ask permission somewhere in the middle of every other task.
-  const askAt = round % 2 === 0 ? Math.floor(steps.length / 2) : -1;
-  round += 1;
+  // Ask permission halfway through every task, like a real agent would.
+  const askAt = Math.floor(steps.length / 2);
   const tick = () => {
     if (i === askAt) {
       askPermission();
