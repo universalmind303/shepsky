@@ -119,7 +119,13 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
                 // leave the terminal a sliver.
                 if (!WindowInsets.isImeVisible) {
                     Rule()
-                    Keys(blocked = blocked, armed = armed && connected, connected = connected, onKey = writes::key)
+                    Keys(
+                        blocked = blocked,
+                        armed = armed && connected,
+                        connected = connected,
+                        codex = agent?.kind == "codex",
+                        onKey = writes::key,
+                    )
                 }
             }
         },
@@ -147,9 +153,10 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
  * Two rows of keys in a fixed layout. Top row: the quick replies, lit up in
  * red while the agent is asking; 1/2/3 only work then (after the arming
  * delay), so nothing shifts or fires under a finger as the status changes.
+ * Codex gets shift+left too.
  */
 @Composable
-private fun Keys(blocked: Boolean, armed: Boolean, connected: Boolean, onKey: (String) -> Unit) {
+private fun Keys(blocked: Boolean, armed: Boolean, connected: Boolean, codex: Boolean, onKey: (String) -> Unit) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -168,8 +175,15 @@ private fun Keys(blocked: Boolean, armed: Boolean, connected: Boolean, onKey: (S
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("tab" to "tab", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right").forEach { (label, key) ->
-                KeyCap(label, onClick = { onKey(key) }, enabled = connected, modifier = Modifier.weight(1f))
+            val navigation = listOf("tab" to "tab", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right")
+            (navigation + if (codex) listOf("⇧←" to "shift+left") else emptyList()).forEach { (label, key) ->
+                KeyCap(
+                    label,
+                    onClick = { onKey(key) },
+                    enabled = connected,
+                    contentDescription = if (key == "shift+left") "Shift left" else null,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
