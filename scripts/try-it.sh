@@ -103,9 +103,11 @@ else
     step "creating emulator '$AVD' (Pixel 7, Android 15)"
     echo no | "$AVDMANAGER" create avd -n "$AVD" -k "$IMAGE" -d pixel_7 >/dev/null
   fi
-  # Type with the Mac keyboard; draw with the Mac's GPU.
+  # Type with the Mac keyboard; draw with the Mac's GPU ("auto" can pick a
+  # software renderer that makes typing crawl). If the window comes up
+  # blank, re-run with COLLIE_EMULATOR_ARGS="-gpu swiftshader_indirect".
   config="$AVD_DIR/config.ini"
-  for kv in hw.keyboard=yes hw.gpu.enabled=yes hw.gpu.mode=auto; do
+  for kv in hw.keyboard=yes hw.gpu.enabled=yes hw.gpu.mode=host; do
     key="${kv%%=*}"
     if grep -q "^$key=" "$config"; then
       sed -i '' "s/^$key=.*/$kv/" "$config"

@@ -52,8 +52,14 @@ fun App() {
     LaunchedEffect(pendingPair) {
         pendingPair?.let { link ->
             MainActivity.pendingPair.value = null
-            pairPrefill = link
-            showPair = true
+            // Re-running the demo re-sends the same link; don't yank a
+            // working app over to Settings for it.
+            val alreadyLive = CollieRepo.running &&
+                link.url == Prefs.url(context) && link.token == Prefs.token(context)
+            if (!alreadyLive) {
+                pairPrefill = link
+                showPair = true
+            }
         }
     }
 
