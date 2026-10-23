@@ -1,62 +1,83 @@
 package dev.shepsky.ui
 
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
-import dev.shepsky.core.ShepskyRepo
+import androidx.compose.ui.unit.sp
 import dev.shepsky.core.ConnState
 import dev.shepsky.core.Frame
+import dev.shepsky.core.ShepskyRepo
+import dev.shepsky.data.Prefs
 import kotlinx.coroutines.delay
-
-private const val PREVIEW_LINES = 16
 
 /** Quick replies stay dead this long after the agent starts asking, so a tap
  *  that was already on its way can't approve a question nobody has read. */
 private const val ARM_DELAY_MS = 600L
 
+private const val MIN_TERMINAL_SP = 7f
+private const val MAX_TERMINAL_SP = 22f
+
+/**
+ * One agent: its live terminal, a prompt line, and the keys. Opening it is
+ * one tap from the overview or a notification; the question an agent is
+ * asking is right there in its terminal.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AgentScreen(
-    paneId: String,
-    onOpenTerminal: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onBack: () -> Unit,
-) {
+fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) {
     val state by ShepskyRepo.state.collectAsState()
     val conn by ShepskyRepo.conn.collectAsState()
     val frame by ShepskyRepo.frameFlow(paneId).collectAsState()
     val agent = state.agents.firstOrNull { it.pane_id == paneId }
     val connected = conn == ConnState.Connected
     val blocked = agent?.status == "blocked"
+    val t = LocalTerm.current
 
     val snackbar = remember { SnackbarHostState() }
     val writes = rememberAgentWrites(paneId, snackbar)
+    // Tapping the terminal (say, the agent's own input box) means "let me
+    // type": focus the prompt line and bring up the keyboard.
+    val promptFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
 
     var armed by remember { mutableStateOf(false) }
     LaunchedEffect(blocked) {
@@ -76,130 +97,156 @@ fun AgentScreen(
     LaunchedEffect(paneId, connected, agent?.status) {
         if (connected && agent?.status == "done") ShepskyRepo.focusAgent(paneId)
     }
-    val t = LocalTerm.current
+
     Scaffold(
         topBar = {
             TopLine(
                 segments(
                     Seg(agent?.label ?: "agent", bold = true),
-                    *listOfNotNull(agent?.workspace_label?.let { Seg(it, t.dim) }).toTypedArray(),
+                    *listOfNotNull(
+                        agent?.workspace_label?.let { Seg(it, t.dim) },
+                        agent?.let { Seg("[${statusGlyph(it.status)}] ${statusLabel(it.status)}", statusColor(it.status)) },
+                    ).toTypedArray(),
                 ),
                 onBack = onBack,
-                actions = {
-                    if (agent != null) TapText("[term]", onOpenTerminal, contentDescription = "Open terminal")
-                },
             )
         },
         bottomBar = {
-            if (agent != null) {
-                ReplyBar(writes, blocked = blocked, armed = armed && connected, connected = connected)
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
+                Rule()
+                PromptLine(writes, connected = connected, blocked = blocked, focus = promptFocus)
+                // While typing, the keys step aside so the keyboard doesn't
+                // leave the terminal a sliver.
+                if (!WindowInsets.isImeVisible) {
+                    Rule()
+                    Keys(blocked = blocked, armed = armed && connected, connected = connected, onKey = writes::key)
+                }
             }
         },
         snackbarHost = { TermSnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
-            if (agent == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (connected && state.herdr_connected) "this agent is gone" else "waiting for your mac…",
-                        color = t.dim,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+            when {
+                agent != null -> TerminalView(frame) {
+                    promptFocus.requestFocus()
+                    keyboard?.show()
                 }
-                return@Column
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    statusTag(agent.status),
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                agent.title?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium)
+                connected && state.herdr_connected -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    BlinkingLine("this agent is gone")
                 }
-                agent.cwd?.let {
-                    Text(it, color = t.dim, style = MaterialTheme.typography.bodySmall)
+                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    BlinkingLine("waiting for your mac")
                 }
-                OutputPreview(frame, onClick = onOpenTerminal, modifier = Modifier.padding(top = 10.dp))
-            }
-        }
-    }
-}
-
-/** The last screenful of output, so nobody answers a question blind. */
-@Composable
-private fun OutputPreview(frame: Frame?, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val t = LocalTerm.current
-    Column(modifier.fillMaxWidth()) {
-        SectionRule("output · tap to open")
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .border(1.dp, t.dim)
-                .clickable(onClick = onClick)
-                .padding(10.dp),
-        ) {
-            val lines = frame?.lines?.dropLastWhile { it.isBlankLine() }?.takeLast(PREVIEW_LINES)
-            if (lines == null) {
-                Text("waiting for output…", color = t.dim, style = MaterialTheme.typography.bodySmall)
-            } else {
-                ScrollingTerminalLines(lines)
             }
         }
     }
 }
 
 /**
- * Quick replies over the prompt box. Fixed layout whatever the status: the
- * keys only light up while the agent is asking, so nothing shifts under a
- * finger when the status changes.
+ * Two rows of keys in a fixed layout. Top row: the quick replies, lit up in
+ * red while the agent is asking; 1/2/3 only work then (after the arming
+ * delay), so nothing shifts or fires under a finger as the status changes.
  */
 @Composable
-private fun ReplyBar(
-    writes: AgentWrites,
-    blocked: Boolean,
-    armed: Boolean,
-    connected: Boolean,
-) {
-    val t = LocalTerm.current
+private fun Keys(blocked: Boolean, armed: Boolean, connected: Boolean, onKey: (String) -> Unit) {
     Column(
-        Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .imePadding(),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Rule()
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                if (blocked) "it's asking you — reply:" else "quick replies light up when it asks",
-                color = if (blocked) t.red else t.dim,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (blocked) FontWeight.Bold else null,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("1" to "1", "2" to "2", "3" to "3", "⏎" to "enter", "esc" to "esc").forEach { (label, key) ->
-                    KeyCap(
-                        label,
-                        onClick = { writes.key(key) },
-                        enabled = armed,
-                        hot = blocked,
-                        contentDescription = if (key == "enter") "Enter" else null,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1" to "1", "2" to "2", "3" to "3", "esc" to "esc", "⏎" to "enter").forEach { (label, key) ->
+                val digit = key.length == 1
+                KeyCap(
+                    label,
+                    onClick = { onKey(key) },
+                    enabled = if (blocked) armed else connected && !digit,
+                    hot = blocked,
+                    contentDescription = if (key == "enter") "Enter" else null,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
-        Rule()
-        PromptLine(writes, connected = connected, blocked = blocked)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("tab" to "tab", "↑" to "up", "↓" to "down", "←" to "left", "→" to "right").forEach { (label, key) ->
+                KeyCap(label, onClick = { onKey(key) }, enabled = connected, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TerminalView(frame: Frame?, onTap: () -> Unit) {
+    val context = LocalContext.current
+    val vScroll = rememberScrollState()
+    val hScroll = rememberScrollState()
+    // Pinch to zoom: real agents draw 130+ columns, which no single size
+    // makes readable on a phone. Remembered across sessions.
+    var fontSize by remember { mutableFloatStateOf(Prefs.terminalFontSize(context)) }
+
+    // Follow new output only while you're at the bottom: scrolling up
+    // pauses it so you can read, [↓ latest] resumes. Decided when a scroll
+    // gesture ends, never by a frame arriving.
+    var following by remember { mutableStateOf(true) }
+    val slack = with(LocalDensity.current) { 32.dp.toPx() }
+    LaunchedEffect(vScroll) {
+        var wasScrolling = false
+        snapshotFlow { vScroll.isScrollInProgress }.collect { scrolling ->
+            if (wasScrolling && !scrolling) following = vScroll.value >= vScroll.maxValue - slack
+            wasScrolling = scrolling
+        }
+    }
+    LaunchedEffect(frame, following, fontSize) {
+        if (following) vScroll.scrollTo(vScroll.maxValue)
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTap)
+                .pinchToZoom { zoom ->
+                    fontSize = (fontSize * zoom).coerceIn(MIN_TERMINAL_SP, MAX_TERMINAL_SP)
+                    Prefs.setTerminalFontSize(context, fontSize)
+                }
+                .verticalScroll(vScroll)
+                .horizontalScroll(hScroll)
+                .padding(10.dp),
+        ) {
+            if (frame == null) {
+                BlinkingLine("waiting for frames")
+            } else {
+                TerminalLines(frame.lines, fontSize = fontSize.sp)
+            }
+        }
+        if (!following) {
+            KeyCap(
+                "↓ latest",
+                onClick = { following = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .background(LocalTerm.current.bg),
+            )
+        }
+    }
+}
+
+/**
+ * Two-finger pinch reports zoom factors; one finger is left alone for the
+ * scrolls underneath. Watches the Initial pass so a pinch doesn't also
+ * scroll.
+ */
+private fun Modifier.pinchToZoom(onZoom: (Float) -> Unit) = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.count { it.pressed } >= 2) {
+                val zoom = event.calculateZoom()
+                if (zoom != 1f) onZoom(zoom)
+                event.changes.forEach { it.consume() }
+            }
+        } while (event.changes.any { it.pressed })
     }
 }

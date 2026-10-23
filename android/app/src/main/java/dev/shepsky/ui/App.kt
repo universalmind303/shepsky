@@ -18,7 +18,6 @@ import dev.shepsky.service.ShepskyService
 sealed interface Screen {
     data object Overview : Screen
     data class Agent(val paneId: String) : Screen
-    data class Terminal(val paneId: String) : Screen
 }
 
 @Composable
@@ -86,12 +85,6 @@ fun App() {
             onOpenSettings = { showPair = true },
         )
         is Screen.Agent -> AgentScreen(
-            paneId = screen.paneId,
-            onOpenTerminal = { stack = stack + Screen.Terminal(screen.paneId) },
-            onOpenSettings = { showPair = true },
-            onBack = { stack = stack.dropLast(1) },
-        )
-        is Screen.Terminal -> TerminalScreen(
             paneId = screen.paneId,
             onOpenSettings = { showPair = true },
             onBack = { stack = stack.dropLast(1) },
