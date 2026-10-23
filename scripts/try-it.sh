@@ -134,7 +134,7 @@ fi
 
 # --- 4. app -------------------------------------------------------------------
 step "building and installing the app (the first build takes a few minutes)"
-(cd "$REPO/android" && ANDROID_SERIAL="$serial" ./gradlew -q installDebug "-Pshepsky.abis=$ABI")
+(cd "$REPO/android" && ANDROID_SERIAL="$serial" ./gradlew -q installRelease "-Pshepsky.abis=$ABI")
 
 # --- 5. demo ------------------------------------------------------------------
 step "starting the demo"

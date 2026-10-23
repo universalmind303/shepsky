@@ -27,7 +27,8 @@ ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
 prefill_emulator() {
   local token="$1" serial
   [ -x "$ADB" ] || return 0
-  serial="$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" {print $1; exit}')"
+  # ANDROID_SERIAL picks the emulator when there's more than one.
+  serial="${ANDROID_SERIAL:-$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" {print $1; exit}')}"
   [ -n "$serial" ] || return 0
   if ! "$ADB" -s "$serial" shell pm path dev.shepsky >/dev/null 2>&1; then
     echo "  (emulator $serial is running, but the shepsky app isn't installed — see scripts/try-it.sh)"
@@ -50,15 +51,15 @@ case "${1:-up}" in
     echo "creating fake agents…"
     HERDR_SOCKET_PATH="$SOCK" SHEPSKY_DEMO_TRANSCRIPTS="$TRANSCRIPTS" node "$REPO/scripts/demo.mjs"
     echo "building + starting shepsky-bridge on 127.0.0.1:${PORT}…"
-    cargo build -q -p shepsky-bridge --manifest-path "$REPO/Cargo.toml"
+    cargo build -q --release -p shepsky-bridge --manifest-path "$REPO/Cargo.toml"
     pkill -f "shepsky-bridge --socket $SOCK serve" 2>/dev/null || true
     # Agents started from the phone are fake ones too.
     DEMO_AGENT="$(printf '%q %q --idle --transcripts %q' "$(command -v node)" "$REPO/scripts/fake-agent.mjs" "$TRANSCRIPTS")"
-    nohup "$REPO/target/debug/shepsky-bridge" --socket "$SOCK" serve --bind "127.0.0.1:$PORT" --demo \
+    nohup "$REPO/target/release/shepsky-bridge" --socket "$SOCK" serve --bind "127.0.0.1:$PORT" --demo \
       --demo-agent "$DEMO_AGENT" --demo-transcripts "$TRANSCRIPTS" >"$RUN_DIR/bridge.log" 2>&1 &
     echo $! >"$RUN_DIR/bridge.pid"
     sleep 1
-    TOKEN="$("$REPO/target/debug/shepsky-bridge" pair --port "$PORT" | awk '/token:/ {print $2}')"
+    TOKEN="$("$REPO/target/release/shepsky-bridge" pair --port "$PORT" | awk '/token:/ {print $2}')"
     echo
     echo "demo is up. Pair the app with:"
     echo "  URL (emulator):  ws://10.0.2.2:$PORT/ws"

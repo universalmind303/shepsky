@@ -22,3 +22,12 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 shepsky-core = { path = "crates/shepsky-core" }
+
+# Small, fast release builds (the phone's .so and the bridge). Unwinding
+# stays on: a panicking task is contained instead of taking the app or the
+# bridge down with it.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+strip = true

@@ -83,10 +83,11 @@ downloads a few GB (SDK, emulator image, Gradle); later runs take seconds.
 **1. Start the bridge on your Mac** (where herdr runs):
 
 ```sh
-cargo run -p shepsky-bridge -- serve
+cargo install --path crates/shepsky-bridge   # puts shepsky-bridge on your PATH
+shepsky-bridge serve
 ```
 
-It binds `127.0.0.1:7717` and prints what it's doing. `shepsky-bridge status
+(or straight from the repo: `cargo run --release -p shepsky-bridge -- serve`). It binds `127.0.0.1:7717` and prints what it's doing. `shepsky-bridge status
 --watch` gives you the same live view in the terminal, no phone needed.
 
 **2. Expose it to your phone** (pick one):
@@ -106,8 +107,12 @@ accident (check with `tailscale serve status`).
 
 ```sh
 cd android
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew installDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew installRelease
 ```
+
+The release build is about 4 MB. It's signed with Android's debug key, so it
+installs over a debug build in place; publishing it anywhere would need a real
+signing key. `installDebug` still works for development.
 
 **4. Pair.** Run `shepsky-bridge pair` on the Mac, type the URL + token into
 the app, hit Connect. Done — the overview fills in, and notifications arrive

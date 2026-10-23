@@ -140,7 +140,7 @@ phase `unauthorized` instead of retrying.
 ## Trying it
 
 ```sh
-cargo run -p shepsky-bridge -- serve &
+cargo run --release -p shepsky-bridge -- serve &
 node scripts/smoke.mjs                      # hello + state
 node scripts/smoke.mjs --watch-pane w1:p1   # + first terminal frame
 ```
