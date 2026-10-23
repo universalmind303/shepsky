@@ -147,13 +147,21 @@ function askPermission() {
   state = "blocked";
   const action = PERMISSIONS[FLAVOR] ?? PERMISSIONS.test;
   report("blocked", `Allow ${KIND} to ${action}?`);
+  // Full pane width, like real agents' permission boxes (so the phone gets
+  // realistically wide frames).
+  const inner = Math.max(30, (process.stdout.columns || 80) - 4);
+  const row = (text = "", styled = text) =>
+    `${c.yellow("│")} ${styled}${" ".repeat(Math.max(0, inner - text.length))} ${c.yellow("│")}`;
   out();
-  out(c.yellow(`╭─ ${KIND} wants to ${action}`));
-  out(c.yellow("│"));
-  out(`${c.yellow("│")}  ${c.bold("1.")} Yes`);
-  out(`${c.yellow("│")}  ${c.bold("2.")} Yes, and don't ask again for this session`);
-  out(`${c.yellow("│")}  ${c.bold("3.")} No, tell ${KIND} what to do differently ${c.dim("(esc)")}`);
-  out(c.yellow("╰─ waiting for you…"));
+  out(c.yellow(`╭${"─".repeat(inner + 2)}╮`));
+  out(row(`${KIND} wants to ${action}`, c.bold(`${KIND} wants to ${action}`)));
+  out(row());
+  out(row("1. Yes", `${c.bold("1.")} Yes`));
+  out(row("2. Yes, and don't ask again for this session", `${c.bold("2.")} Yes, and don't ask again for this session`));
+  const no = `3. No, tell ${KIND} what to do differently (esc)`;
+  out(row(no, `${c.bold("3.")} No, tell ${KIND} what to do differently ${c.dim("(esc)")}`));
+  out(c.yellow(`╰${"─".repeat(inner + 2)}╯`));
+  out(c.dim("  waiting for you…"));
 }
 
 function answerPermission(choice) {
