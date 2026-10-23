@@ -1,42 +1,23 @@
 package dev.collie.ui
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,13 +29,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.collie.core.CollieRepo
 import dev.collie.core.ConnState
 import dev.collie.core.Frame
@@ -68,7 +45,6 @@ private const val PREVIEW_LINES = 16
  *  that was already on its way can't approve a question nobody has read. */
 private const val ARM_DELAY_MS = 600L
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(
     paneId: String,
@@ -130,32 +106,17 @@ fun AgentScreen(
         }
     }
 
+    val t = LocalTerm.current
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(agent?.label ?: "agent", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        agent?.workspace_label?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            TopLine(
+                segments(
+                    Seg(agent?.label ?: "agent", bold = true),
+                    *listOfNotNull(agent?.workspace_label?.let { Seg(it, t.dim) }).toTypedArray(),
+                ),
+                onBack = onBack,
                 actions = {
-                    if (agent != null) {
-                        IconButton(onClick = onOpenTerminal) {
-                            Icon(Icons.Default.Terminal, contentDescription = "Open terminal")
-                        }
-                    }
+                    if (agent != null) TapText("[term]", onOpenTerminal, contentDescription = "Open terminal")
                 },
             )
         },
@@ -176,15 +137,16 @@ fun AgentScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { TermSnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
             if (agent == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        if (connected && state.herdr_connected) "This agent is gone." else "Waiting for your Mac…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (connected && state.herdr_connected) "this agent is gone" else "waiting for your mac…",
+                        color = t.dim,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 return@Column
@@ -194,27 +156,20 @@ fun AgentScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(12.dp).background(statusColor(agent.status), CircleShape))
-                    Text(statusLabel(agent.status), color = statusColor(agent.status), style = MaterialTheme.typography.titleMedium)
-                }
+                Text(
+                    statusTag(agent.status),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                )
                 agent.title?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (blocked) FontWeight.SemiBold else null,
-                    )
+                    Text(it, style = MaterialTheme.typography.bodyMedium)
                 }
-                OutputPreview(frame, onClick = onOpenTerminal)
                 agent.cwd?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text(it, color = t.dim, style = MaterialTheme.typography.bodySmall)
                 }
+                OutputPreview(frame, onClick = onOpenTerminal, modifier = Modifier.padding(top = 10.dp))
             }
         }
     }
@@ -222,29 +177,30 @@ fun AgentScreen(
 
 /** The last screenful of output, so nobody answers a question blind. */
 @Composable
-private fun OutputPreview(frame: Frame?, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(TerminalBackground)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        val lines = frame?.lines?.dropLastWhile { it.isBlankLine() }?.takeLast(PREVIEW_LINES)
-        if (lines == null) {
-            Text("waiting for output…", color = TerminalDim, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-        } else {
-            TerminalLines(lines, Modifier.horizontalScroll(rememberScrollState()))
+private fun OutputPreview(frame: Frame?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val t = LocalTerm.current
+    Column(modifier.fillMaxWidth()) {
+        SectionRule("output · tap to open")
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, t.dim)
+                .clickable(onClick = onClick)
+                .padding(10.dp),
+        ) {
+            val lines = frame?.lines?.dropLastWhile { it.isBlankLine() }?.takeLast(PREVIEW_LINES)
+            if (lines == null) {
+                Text("waiting for output…", color = t.dim, style = MaterialTheme.typography.bodySmall)
+            } else {
+                TerminalLines(lines, Modifier.horizontalScroll(rememberScrollState()))
+            }
         }
-        Text("Tap for the full terminal", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
     }
 }
 
 /**
  * Quick replies over the prompt box. Fixed layout whatever the status: the
- * buttons only light up while the agent is asking, so nothing shifts under a
+ * keys only light up while the agent is asking, so nothing shifts under a
  * finger when the status changes.
  */
 @Composable
@@ -257,57 +213,61 @@ private fun ReplyBar(
     onKey: (String) -> Unit,
     onSend: () -> Unit,
 ) {
-    val asking = statusColor("blocked")
-    Surface(tonalElevation = 3.dp) {
+    val t = LocalTerm.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding(),
+    ) {
+        Rule()
         Column(
-            Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                if (blocked) "It's asking you — reply:" else "Quick replies light up when it asks you something",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (blocked) asking else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (blocked) FontWeight.SemiBold else null,
+                if (blocked) "it's asking you — reply:" else "quick replies light up when it asks",
+                color = if (blocked) t.red else t.dim,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (blocked) FontWeight.Bold else null,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("1" to "1", "2" to "2", "3" to "3", "Enter" to "enter", "Esc" to "esc").forEach { (label, key) ->
-                    Button(
+                listOf("1" to "1", "2" to "2", "3" to "3", "⏎" to "enter", "esc" to "esc").forEach { (label, key) ->
+                    KeyCap(
+                        label,
                         onClick = { onKey(key) },
                         enabled = armed,
-                        colors = ButtonDefaults.buttonColors(containerColor = asking, contentColor = Color.White),
-                        contentPadding = PaddingValues(horizontal = 4.dp),
-                        modifier = Modifier.weight(1f).height(48.dp),
-                    ) {
-                        Text(label, fontWeight = FontWeight.SemiBold)
-                    }
+                        hot = blocked,
+                        contentDescription = if (key == "enter") "Enter" else null,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 2.dp))
-            val canPrompt = connected && !blocked
-            OutlinedTextField(
+        }
+        Rule()
+        val canPrompt = connected && !blocked
+        Row(
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TermField(
                 value = prompt,
                 onValueChange = onPromptChange,
                 enabled = canPrompt,
-                placeholder = {
-                    Text(
-                        when {
-                            !connected -> "Not connected to your Mac"
-                            blocked -> "Answer its question first"
-                            else -> "Send a prompt"
-                        }
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = onSend, enabled = canPrompt && prompt.isNotBlank()) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                    }
+                placeholder = when {
+                    !connected -> "not connected to your mac"
+                    blocked -> "answer its question first"
+                    else -> "send a prompt"
                 },
                 maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+            )
+            TapText(
+                "[⏎]",
+                onSend,
+                contentDescription = "Send",
+                color = if (canPrompt && prompt.isNotBlank()) t.accent else t.dim,
+                enabled = canPrompt && prompt.isNotBlank(),
             )
         }
     }

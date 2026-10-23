@@ -1,48 +1,35 @@
 package dev.collie.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import dev.collie.core.CollieRepo
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import dev.collie.core.CollieRepo
 import dev.collie.core.ConnState
 import dev.collie.core.Frame
 import dev.collie.core.OpResult
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) {
     DisposableEffect(paneId) {
@@ -53,6 +40,7 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
     val state by CollieRepo.state.collectAsState()
     val conn by CollieRepo.conn.collectAsState()
     val agent = state.agents.firstOrNull { it.pane_id == paneId }
+    val t = LocalTerm.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val keyOps = remember { mutableSetOf<String>() }
@@ -65,21 +53,18 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
             }
         }
     }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        listOfNotNull(agent?.label ?: "terminal", agent?.workspace_label).joinToString(" · "),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            TopLine(
+                segments(
+                    Seg(agent?.label ?: "terminal", bold = true),
+                    *listOfNotNull(
+                        agent?.workspace_label?.let { Seg(it, t.dim) },
+                        agent?.let { Seg("[${statusGlyph(it.status)}] ${statusLabel(it.status)}", statusColor(it.status)) },
+                    ).toTypedArray(),
+                ),
+                onBack = onBack,
             )
         },
         bottomBar = {
@@ -87,7 +72,7 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
                 keyOps += CollieRepo.sendKeys(paneId, listOf(key))
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { TermSnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
@@ -107,19 +92,13 @@ private fun TerminalView(frame: Frame?) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(TerminalBackground)
             .verticalScroll(vScroll)
             .horizontalScroll(hScroll)
             .padding(10.dp),
     ) {
         val current = frame
         if (current == null) {
-            Text(
-                "waiting for frames…",
-                color = TerminalDim,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-            )
+            BlinkingLine("waiting for frames")
         } else {
             TerminalLines(current.lines)
         }
@@ -128,30 +107,25 @@ private fun TerminalView(frame: Frame?) {
 
 @Composable
 private fun KeyBar(enabled: Boolean, onKey: (String) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .navigationBarsPadding()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        listOf(
-            "Esc" to "esc",
-            "Tab" to "tab",
-            "↑" to "up",
-            "↓" to "down",
-            "←" to "left",
-            "→" to "right",
-            "⏎" to "enter",
-        ).forEach { (label, key) ->
-            OutlinedButton(
-                onClick = { onKey(key) },
-                enabled = enabled,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            ) {
-                Text(label)
+    Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+        Rule()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "esc" to "esc",
+                "tab" to "tab",
+                "↑" to "up",
+                "↓" to "down",
+                "←" to "left",
+                "→" to "right",
+                "⏎" to "enter",
+            ).forEach { (label, key) ->
+                KeyCap(label, onClick = { onKey(key) }, enabled = enabled)
             }
         }
     }

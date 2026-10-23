@@ -1,20 +1,9 @@
 package dev.collie.ui
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import dev.collie.core.CollieRepo
 import dev.collie.core.ConnState
 import dev.collie.core.UserText
@@ -26,32 +15,30 @@ fun ConnBanner(onOpenSettings: (() -> Unit)? = null) {
     val conn by CollieRepo.conn.collectAsState()
     val state by CollieRepo.state.collectAsState()
     val context = LocalContext.current
+    val t = LocalTerm.current
     val text = UserText.connection(conn, Prefs.url(context))
         ?: if (!state.herdr_connected) "Your Mac's bridge is reconnecting to herdr…" else return
-    Banner(
+    // Transient states in yellow, broken ones in red.
+    val transient = conn == ConnState.Connecting || conn == ConnState.Connected
+    AlertLine(
         text,
-        action = if (conn == ConnState.TokenRejected) onOpenSettings?.let { "Re-pair" to it } else null,
+        color = if (transient) t.yellow else t.red,
+        action = if (conn == ConnState.TokenRejected) onOpenSettings?.let { "re-pair" to it } else null,
     )
 }
 
+/** `● linked`, for the status line. */
 @Composable
-private fun Banner(text: String, action: Pair<String, () -> Unit>?) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-        ) {
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(vertical = 4.dp),
-            )
-            action?.let { (label, onClick) ->
-                TextButton(onClick = onClick) { Text(label) }
-            }
-        }
+fun linkSeg(): Seg {
+    val conn by CollieRepo.conn.collectAsState()
+    val state by CollieRepo.state.collectAsState()
+    val t = LocalTerm.current
+    return when (conn) {
+        ConnState.Connected ->
+            if (state.herdr_connected) Seg("● linked", t.green) else Seg("◐ herdr…", t.yellow)
+        ConnState.Connecting -> Seg("◐ linking", t.yellow)
+        ConnState.Idle -> Seg("○ unpaired", t.dim)
+        ConnState.TokenRejected -> Seg("× rejected", t.red)
+        is ConnState.Disconnected -> Seg("○ offline", t.red)
     }
 }

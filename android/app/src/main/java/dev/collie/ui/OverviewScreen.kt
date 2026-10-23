@@ -1,39 +1,36 @@
 package dev.collie.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.collie.core.AgentView
 import dev.collie.core.CollieRepo
 import dev.collie.core.ConnState
+import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OverviewScreen(
     onOpenAgent: (String) -> Unit,
@@ -41,46 +38,44 @@ fun OverviewScreen(
 ) {
     val state by CollieRepo.state.collectAsState()
     val conn by CollieRepo.conn.collectAsState()
+    val t = LocalTerm.current
+    val count = state.agents.size
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("collie") },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
+            TopLine(
+                segments(
+                    Seg("collie", t.accent, bold = true),
+                    Seg(t.id, t.dim),
+                    Seg(if (count == 1) "1 agent" else "$count agents"),
+                    linkSeg(),
+                ),
+                actions = { TapText("[≡]", onOpenSettings, contentDescription = "Settings") },
             )
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
 
-            val byWorkspace = state.agents.groupBy { it.workspace_label ?: it.workspace_id }
             if (state.agents.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (conn is ConnState.Connected) "No agents running right now."
-                        else "Waiting for the bridge…",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                    BlinkingLine(
+                        if (conn is ConnState.Connected) "no agents running" else "waiting for your mac",
                     )
                 }
-            } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    byWorkspace.forEach { (workspace, agents) ->
-                        item(key = "ws-$workspace") {
-                            Text(
-                                workspace,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp),
-                            )
-                        }
-                        items(agents.size, key = { agents[it].pane_id }) { index ->
-                            AgentRow(agents[index], onClick = { onOpenAgent(agents[index].pane_id) })
-                        }
+                return@Column
+            }
+
+            // Labels line up in one column, like a herdr sidebar.
+            val labelWidth = state.agents.maxOf { it.label.length }.coerceIn(5, 12)
+            val byWorkspace = state.agents.groupBy { it.workspace_label ?: it.workspace_id }
+            LazyColumn(Modifier.fillMaxSize()) {
+                byWorkspace.forEach { (workspace, agents) ->
+                    item(key = "ws-$workspace") {
+                        SectionRule(workspace, Modifier.padding(start = 16.dp, top = 14.dp, bottom = 2.dp))
+                    }
+                    items(agents.size, key = { agents[it].pane_id }) { index ->
+                        AgentRow(agents[index], labelWidth, onClick = { onOpenAgent(agents[index].pane_id) })
                     }
                 }
             }
@@ -89,38 +84,56 @@ fun OverviewScreen(
 }
 
 @Composable
-private fun AgentRow(agent: AgentView, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
+private fun AgentRow(agent: AgentView, labelWidth: Int, onClick: () -> Unit) {
+    val t = LocalTerm.current
+    val color = statusColor(agent.status)
+    Column(
+        Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Box(
-            Modifier
-                .size(12.dp)
-                .background(statusColor(agent.status), CircleShape)
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = color)) { append("[${statusGlyph(agent.status)}] ") }
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                    append(agent.label.take(labelWidth).padEnd(labelWidth))
+                }
+                withStyle(SpanStyle(color = color)) { append("  ${statusLabel(agent.status)}") }
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(agent.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    statusLabel(agent.status),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = statusColor(agent.status),
-                )
-            }
-            agent.title?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        agent.title?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                "    $it",
+                color = t.dim,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
+}
+
+/** `text █`, the cursor blinking. */
+@Composable
+fun BlinkingLine(text: String) {
+    val t = LocalTerm.current
+    var on by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(530)
+            on = !on
+        }
+    }
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = t.dim)) { append("$text ") }
+            withStyle(SpanStyle(color = if (on) t.fg else t.bg)) { append("█") }
+        },
+        style = MaterialTheme.typography.bodyMedium,
+    )
 }

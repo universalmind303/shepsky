@@ -8,7 +8,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -16,10 +15,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import dev.collie.core.Span
-
-val TerminalBackground = Color(0xFF14141A)
-val TerminalForeground = Color(0xFFD6D6DC)
-val TerminalDim = Color(0xFF8A8F98)
 
 /** Styled terminal rows, unwrapped (callers decide how to scroll or clip). */
 @Composable
@@ -32,11 +27,11 @@ fun TerminalLines(
         lines.forEach { line ->
             Text(
                 text = line.toAnnotated(),
-                fontFamily = FontFamily.Monospace,
+                fontFamily = Mono,
                 fontSize = fontSize,
-                lineHeight = fontSize * 1.3f,
+                lineHeight = fontSize * 1.25f,
                 softWrap = false,
-                color = TerminalForeground,
+                color = LocalTerm.current.fg,
             )
         }
     }
