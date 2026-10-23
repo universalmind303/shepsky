@@ -30,15 +30,17 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import dev.shepsky.core.ShepskyRepo
 import dev.shepsky.data.Prefs
 import dev.shepsky.core.ConnState
 import dev.shepsky.core.Frame
-import dev.shepsky.core.OpResult
-import kotlinx.coroutines.launch
 
 @Composable
 fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) {
@@ -52,17 +54,12 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
     val agent = state.agents.firstOrNull { it.pane_id == paneId }
     val t = LocalTerm.current
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val keyOps = remember { mutableSetOf<String>() }
-    LaunchedEffect(Unit) {
-        ShepskyRepo.opResults.collect { result ->
-            if (!keyOps.remove(result.opId) || result !is OpResult.Failed) return@collect
-            scope.launch {
-                snackbar.currentSnackbarData?.dismiss()
-                snackbar.showSnackbar(result.friendly)
-            }
-        }
-    }
+    val writes = rememberAgentWrites(paneId, snackbar)
+    val connected = conn == ConnState.Connected
+    // Tapping the terminal (say, the agent's own input box) means "let me
+    // type": focus the prompt line and bring up the keyboard.
+    val promptFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
 
     Scaffold(
         topBar = {
@@ -78,21 +75,26 @@ fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Uni
             )
         },
         bottomBar = {
-            KeyBar(enabled = conn == ConnState.Connected) { key ->
-                keyOps += ShepskyRepo.sendKeys(paneId, listOf(key))
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
+                Rule()
+                PromptLine(writes, connected = connected, blocked = agent?.status == "blocked", focus = promptFocus)
+                KeyBar(enabled = connected, onKey = writes::key)
             }
         },
         snackbarHost = { TermSnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
-            TerminalView(frame)
+            TerminalView(frame) {
+                promptFocus.requestFocus()
+                keyboard?.show()
+            }
         }
     }
 }
 
 @Composable
-private fun TerminalView(frame: Frame?) {
+private fun TerminalView(frame: Frame?, onTap: () -> Unit) {
     val context = LocalContext.current
     val vScroll = rememberScrollState()
     val hScroll = rememberScrollState()
@@ -106,6 +108,7 @@ private fun TerminalView(frame: Frame?) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTap)
             .pinchToZoom { zoom ->
                 fontSize = (fontSize * zoom).coerceIn(MIN_TERMINAL_SP, MAX_TERMINAL_SP)
                 Prefs.setTerminalFontSize(context, fontSize)
@@ -147,7 +150,7 @@ private fun Modifier.pinchToZoom(onZoom: (Float) -> Unit) = pointerInput(Unit) {
 
 @Composable
 private fun KeyBar(enabled: Boolean, onKey: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+    Column(Modifier.fillMaxWidth()) {
         Rule()
         // Every key visible: they share the width (~50dp each on a phone).
         Row(

@@ -24,7 +24,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,9 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.shepsky.core.ShepskyRepo
 import dev.shepsky.core.ConnState
 import dev.shepsky.core.Frame
-import dev.shepsky.core.OpResult
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private const val PREVIEW_LINES = 16
 
@@ -59,11 +56,7 @@ fun AgentScreen(
     val blocked = agent?.status == "blocked"
 
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    var prompt by remember { mutableStateOf("") }
-    // The prompt we cleared optimistically, until the bridge confirms it.
-    var sentPrompt by remember { mutableStateOf<Pair<String, String>?>(null) } // op id to text
-    val keyOps = remember { mutableSetOf<String>() }
+    val writes = rememberAgentWrites(paneId, snackbar)
 
     var armed by remember { mutableStateOf(false) }
     LaunchedEffect(blocked) {
@@ -83,28 +76,6 @@ fun AgentScreen(
     LaunchedEffect(paneId, connected, agent?.status) {
         if (connected && agent?.status == "done") ShepskyRepo.focusAgent(paneId)
     }
-    LaunchedEffect(Unit) {
-        ShepskyRepo.opResults.collect { result ->
-            val sent = sentPrompt
-            val isPrompt = sent != null && sent.first == result.opId
-            if (isPrompt) sentPrompt = null
-            if (result !is OpResult.Failed) {
-                keyOps.remove(result.opId)
-                return@collect
-            }
-            when {
-                // Give the text back unless they've started typing something new.
-                isPrompt -> if (prompt.isBlank()) prompt = sent!!.second
-                keyOps.remove(result.opId) -> {}
-                else -> return@collect // e.g. our focus op: not worth a snackbar
-            }
-            scope.launch {
-                snackbar.currentSnackbarData?.dismiss()
-                snackbar.showSnackbar(result.friendly)
-            }
-        }
-    }
-
     val t = LocalTerm.current
     Scaffold(
         topBar = {
@@ -121,19 +92,7 @@ fun AgentScreen(
         },
         bottomBar = {
             if (agent != null) {
-                ReplyBar(
-                    blocked = blocked,
-                    armed = armed && connected,
-                    connected = connected,
-                    prompt = prompt,
-                    onPromptChange = { prompt = it },
-                    onKey = { key -> keyOps += ShepskyRepo.sendKeys(paneId, listOf(key)) },
-                    onSend = {
-                        val text = prompt.trim()
-                        sentPrompt = ShepskyRepo.prompt(paneId, text) to text
-                        prompt = ""
-                    },
-                )
+                ReplyBar(writes, blocked = blocked, armed = armed && connected, connected = connected)
             }
         },
         snackbarHost = { TermSnackbarHost(snackbar) },
@@ -204,13 +163,10 @@ private fun OutputPreview(frame: Frame?, onClick: () -> Unit, modifier: Modifier
  */
 @Composable
 private fun ReplyBar(
+    writes: AgentWrites,
     blocked: Boolean,
     armed: Boolean,
     connected: Boolean,
-    prompt: String,
-    onPromptChange: (String) -> Unit,
-    onKey: (String) -> Unit,
-    onSend: () -> Unit,
 ) {
     val t = LocalTerm.current
     Column(
@@ -234,7 +190,7 @@ private fun ReplyBar(
                 listOf("1" to "1", "2" to "2", "3" to "3", "⏎" to "enter", "esc" to "esc").forEach { (label, key) ->
                     KeyCap(
                         label,
-                        onClick = { onKey(key) },
+                        onClick = { writes.key(key) },
                         enabled = armed,
                         hot = blocked,
                         contentDescription = if (key == "enter") "Enter" else null,
@@ -244,30 +200,6 @@ private fun ReplyBar(
             }
         }
         Rule()
-        val canPrompt = connected && !blocked
-        Row(
-            Modifier.padding(start = 16.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TermField(
-                value = prompt,
-                onValueChange = onPromptChange,
-                enabled = canPrompt,
-                placeholder = when {
-                    !connected -> "not connected to your mac"
-                    blocked -> "answer its question first"
-                    else -> "send a prompt"
-                },
-                maxLines = 4,
-                modifier = Modifier.weight(1f),
-            )
-            TapText(
-                "[⏎]",
-                onSend,
-                contentDescription = "Send",
-                color = if (canPrompt && prompt.isNotBlank()) t.accent else t.dim,
-                enabled = canPrompt && prompt.isNotBlank(),
-            )
-        }
+        PromptLine(writes, connected = connected, blocked = blocked)
     }
 }

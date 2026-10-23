@@ -185,8 +185,8 @@ scripts/demo-session.sh down
 
 ## Status
 
-0.1. Known gaps: the terminal is view + key bar (type prompts from the agent
-screen); one bridge per herdr session; per-agent mutes and QR pairing aren't
+0.1. Known gaps: the terminal mirrors the screen but isn't a full terminal
+(tap it to type a prompt; the key bar sends keys); one bridge per herdr session; per-agent mutes and QR pairing aren't
 built yet. Notifications are live only: if an agent finishes or starts asking
 while your phone is offline, the overview catches up when it reconnects, but
 you won't get a notification for it. Opening a *finished* agent marks it seen, which also switches herdr
