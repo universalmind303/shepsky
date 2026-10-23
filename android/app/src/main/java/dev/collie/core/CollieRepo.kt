@@ -76,6 +76,13 @@ object CollieRepo {
 
     private val frames = HashMap<String, MutableStateFlow<Frame?>>()
 
+    /**
+     * Panes being watched, by number of screens watching them. The bridge
+     * keeps one watch per connection per pane (an unwatch ends it) and forgets
+     * them all when the connection drops, so we count here and re-send.
+     */
+    private val watchCounts = HashMap<String, Int>()
+
     private fun mutableFrame(paneId: String): MutableStateFlow<Frame?> = synchronized(frames) {
         frames.getOrPut(paneId) { MutableStateFlow(null) }
     }
@@ -112,13 +119,30 @@ object CollieRepo {
 
     // --- commands ----------------------------------------------------------
 
-    fun watchPane(paneId: String) = send(buildJsonObject {
-        put("type", "watch_pane")
-        put("pane_id", paneId)
-    }.toString())
+    /** Start terminal frames for a pane; pair every call with [unwatchPane]. */
+    fun watchPane(paneId: String) {
+        val first = synchronized(watchCounts) {
+            val n = (watchCounts[paneId] ?: 0) + 1
+            watchCounts[paneId] = n
+            n == 1
+        }
+        if (first) sendWatch(paneId)
+    }
 
-    fun unwatchPane(paneId: String) = send(buildJsonObject {
-        put("type", "unwatch_pane")
+    fun unwatchPane(paneId: String) {
+        val last = synchronized(watchCounts) {
+            val n = (watchCounts[paneId] ?: return) - 1
+            if (n == 0) watchCounts.remove(paneId) else watchCounts[paneId] = n
+            n == 0
+        }
+        if (last) send(buildJsonObject {
+            put("type", "unwatch_pane")
+            put("pane_id", paneId)
+        }.toString())
+    }
+
+    private fun sendWatch(paneId: String) = send(buildJsonObject {
+        put("type", "watch_pane")
         put("pane_id", paneId)
     }.toString())
 
@@ -202,7 +226,11 @@ object CollieRepo {
                         else -> ConnState.Disconnected(detail)
                     }
                 }
-                "hello" -> _conn.value = ConnState.Connected
+                "hello" -> {
+                    _conn.value = ConnState.Connected
+                    // A fresh connection has no watches yet.
+                    synchronized(watchCounts) { watchCounts.keys.toList() }.forEach(::sendWatch)
+                }
                 "state" -> {
                     val state = obj["state"] ?: return
                     _state.value = json.decodeFromJsonElement<StateView>(state)

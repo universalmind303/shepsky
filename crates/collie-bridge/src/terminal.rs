@@ -23,6 +23,8 @@ const CHANNEL_CAP: usize = 8;
 
 struct PaneWatch {
     tx: broadcast::Sender<ServerMsg>,
+    /// Last frame sent, so a late joiner doesn't wait for the screen to change.
+    latest: Arc<Mutex<Option<ServerMsg>>>,
     watchers: usize,
     task: JoinHandle<()>,
 }
@@ -42,29 +44,40 @@ impl TerminalHub {
         })
     }
 
-    /// Start (or join) the watch on a pane.
-    pub fn watch(self: &Arc<Self>, pane_id: &str) -> broadcast::Receiver<ServerMsg> {
+    /// Start (or join) the watch on a pane. Returns the current frame, if
+    /// the pane is already being polled, plus the stream of changes.
+    pub fn watch(
+        self: &Arc<Self>,
+        pane_id: &str,
+    ) -> (Option<ServerMsg>, broadcast::Receiver<ServerMsg>) {
         let mut panes = self.panes.lock().unwrap();
         if let Some(watch) = panes.get_mut(pane_id) {
             watch.watchers += 1;
-            return watch.tx.subscribe();
+            // Subscribe before reading `latest`: a frame racing in between
+            // then arrives twice (harmless) instead of not at all.
+            let rx = watch.tx.subscribe();
+            let latest = watch.latest.lock().unwrap().clone();
+            return (latest, rx);
         }
         let (tx, rx) = broadcast::channel(CHANNEL_CAP);
+        let latest = Arc::new(Mutex::new(None));
         let task = tokio::spawn(poll_pane(
             self.client.clone(),
             pane_id.to_string(),
             tx.clone(),
+            latest.clone(),
         ));
         panes.insert(
             pane_id.to_string(),
             PaneWatch {
                 tx,
+                latest,
                 watchers: 1,
                 task,
             },
         );
         tracing::debug!(pane_id, "terminal watch started");
-        rx
+        (None, rx)
     }
 
     /// Drop one watcher; the poll task stops when nobody's left.
@@ -82,7 +95,12 @@ impl TerminalHub {
     }
 }
 
-async fn poll_pane(client: HerdrClient, pane_id: String, tx: broadcast::Sender<ServerMsg>) {
+async fn poll_pane(
+    client: HerdrClient,
+    pane_id: String,
+    tx: broadcast::Sender<ServerMsg>,
+    latest: Arc<Mutex<Option<ServerMsg>>>,
+) {
     let mut ticker = tokio::time::interval(POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_hash: u64 = 0;
@@ -115,14 +133,15 @@ async fn poll_pane(client: HerdrClient, pane_id: String, tx: broadcast::Sender<S
                 }
                 last_hash = hash;
                 seq += 1;
-                let frame = collie_core::ansi::parse_frame(text);
-                // Lagging receivers just miss intermediate frames; the next
-                // changed frame is always a full screen, so no harm done.
-                let _ = tx.send(ServerMsg::TerminalFrame {
+                let msg = ServerMsg::TerminalFrame {
                     pane_id: pane_id.clone(),
                     seq,
-                    frame,
-                });
+                    frame: collie_core::ansi::parse_frame(text),
+                };
+                *latest.lock().unwrap() = Some(msg.clone());
+                // Lagging receivers just miss intermediate frames; the next
+                // changed frame is always a full screen, so no harm done.
+                let _ = tx.send(msg);
             }
             Err(err) => {
                 // Pane mid-close, herdr restarting… Tell watchers once per

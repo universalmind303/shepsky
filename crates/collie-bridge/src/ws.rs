@@ -232,9 +232,14 @@ async fn handle_client_msg(
                 send_err("not_found", format!("unknown pane {pane_id}"), None).await;
                 return;
             }
-            let mut frames = state.hub.watch(&pane_id);
+            let (current, mut frames) = state.hub.watch(&pane_id);
             let out = out_tx.clone();
             let forwarder = tokio::spawn(async move {
+                if let Some(frame) = current
+                    && out.send(frame).await.is_err()
+                {
+                    return;
+                }
                 loop {
                     match frames.recv().await {
                         Ok(frame) => {
