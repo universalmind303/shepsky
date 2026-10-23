@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import dev.collie.core.CollieRepo
-import dev.collie.core.ConnState
+import dev.collie.core.UserText
 import dev.collie.data.Prefs
 import dev.collie.notif.Notifier
 import kotlinx.coroutines.CoroutineScope
@@ -51,12 +51,7 @@ class CollieService : Service() {
         }
         scope.launch {
             CollieRepo.conn.collect { conn ->
-                val text = when (conn) {
-                    ConnState.Idle, ConnState.Connecting -> "Connecting…"
-                    ConnState.Connected -> "Connected to the bridge"
-                    is ConnState.Disconnected ->
-                        "Reconnecting…" + (conn.detail?.let { " ($it)" } ?: "")
-                }
+                val text = UserText.connection(conn, url) ?: "Connected to your Mac"
                 getSystemService(android.app.NotificationManager::class.java)
                     .notify(Notifier.STATUS_ID, Notifier.statusNotification(this@CollieService, text))
             }

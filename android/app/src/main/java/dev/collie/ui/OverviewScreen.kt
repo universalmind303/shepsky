@@ -19,7 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -56,11 +55,7 @@ fun OverviewScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (conn !is ConnState.Connected) {
-                ConnBanner(conn)
-            } else if (!state.herdr_connected) {
-                Banner("bridge is reconnecting to herdr…")
-            }
+            ConnBanner(onOpenSettings)
 
             val byWorkspace = state.agents.groupBy { it.workspace_label ?: it.workspace_id }
             if (state.agents.isEmpty()) {
@@ -127,30 +122,5 @@ private fun AgentRow(agent: AgentView, onClick: () -> Unit) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ConnBanner(conn: ConnState) {
-    val text = when (conn) {
-        ConnState.Idle -> "not connected — open Settings"
-        ConnState.Connecting -> "connecting to the bridge…"
-        is ConnState.Disconnected -> "reconnecting…" + (conn.detail?.let { " ($it)" } ?: "")
-        ConnState.Connected -> return
-    }
-    Banner(text)
-}
-
-@Composable
-private fun Banner(text: String) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        )
     }
 }

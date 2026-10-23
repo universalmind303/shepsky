@@ -33,12 +33,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.collie.core.CollieRepo
+import dev.collie.core.OpResult
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,12 +53,34 @@ fun AgentScreen(
     val state by CollieRepo.state.collectAsState()
     val agent = state.agents.firstOrNull { it.pane_id == paneId }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var prompt by remember { mutableStateOf("") }
+    // The prompt we cleared optimistically, until the bridge confirms it.
+    var sentPrompt by remember { mutableStateOf<Pair<String, String>?>(null) } // op id to text
+    val keyOps = remember { mutableSetOf<String>() }
 
     // Opening the agent counts as looking at it (clears "finished").
     LaunchedEffect(paneId) { CollieRepo.focusAgent(paneId) }
     LaunchedEffect(Unit) {
-        CollieRepo.opErrors.collect { snackbar.showSnackbar(it) }
+        CollieRepo.opResults.collect { result ->
+            val sent = sentPrompt
+            val isPrompt = sent != null && sent.first == result.opId
+            if (isPrompt) sentPrompt = null
+            if (result !is OpResult.Failed) {
+                keyOps.remove(result.opId)
+                return@collect
+            }
+            when {
+                // Give the text back unless they've started typing something new.
+                isPrompt -> if (prompt.isBlank()) prompt = sent!!.second
+                keyOps.remove(result.opId) -> {}
+                else -> return@collect // e.g. our focus op: not worth a snackbar
+            }
+            scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(result.friendly)
+            }
+        }
     }
 
     Scaffold(
@@ -108,7 +133,7 @@ fun AgentScreen(
                 Text("Quick reply", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("1", "2", "3", "enter", "esc").forEach { key ->
-                        OutlinedButton(onClick = { CollieRepo.sendKeys(paneId, listOf(key)) }) {
+                        OutlinedButton(onClick = { keyOps += CollieRepo.sendKeys(paneId, listOf(key)) }) {
                             Text(if (key.length == 1) key else key.replaceFirstChar { it.uppercase() })
                         }
                     }
@@ -122,7 +147,8 @@ fun AgentScreen(
                 trailingIcon = {
                     IconButton(
                         onClick = {
-                            CollieRepo.prompt(paneId, prompt.trim())
+                            val text = prompt.trim()
+                            sentPrompt = CollieRepo.prompt(paneId, text) to text
                             prompt = ""
                         },
                         enabled = prompt.isNotBlank(),

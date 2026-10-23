@@ -3,7 +3,9 @@
 //!
 //! Everything the UI sees arrives as one JSON event stream:
 //! - every bridge `ServerMsg` is forwarded verbatim (already `type`-tagged);
-//! - synthetic `{"type":"conn","phase":...}` events report connection state.
+//! - synthetic `{"type":"conn","phase":...}` events report connection state
+//!   (`connecting` → `connected` → `disconnected`, or `unauthorized`, which
+//!   is final: a rejected token never gets better by retrying).
 //!
 //! Commands from Kotlin are `ClientMsg` JSON, forwarded verbatim when
 //! connected (auth is handled here, not by Kotlin).
@@ -58,6 +60,21 @@ fn op_id_of(command: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Whether the bridge's first reply is its auth rejection.
+fn is_unauthorized(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text).is_ok_and(|v| {
+        v.get("type").and_then(|t| t.as_str()) == Some("error")
+            && v.get("code").and_then(|c| c.as_str()) == Some("unauthorized")
+    })
+}
+
+/// Answer every command with `not_connected` until `stop()`.
+async fn reject_until_stopped(commands: &mut mpsc::Receiver<String>, events: &EventSink) {
+    while let Some(command) = commands.recv().await {
+        emit_error(events, "not_connected", "token rejected; re-pair", op_id_of(&command));
+    }
+}
+
 /// Runs until `commands` closes (= `stop()` from Kotlin).
 pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: EventSink) {
     let mut attempt: u32 = 0;
@@ -74,6 +91,8 @@ pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: E
                     attempt = 0;
                     let mut ping = tokio::time::interval(PING_INTERVAL);
                     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    let mut first_reply = true;
+                    let mut rejected = false;
 
                     let reason = loop {
                         tokio::select! {
@@ -87,6 +106,10 @@ pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: E
                                 match incoming {
                                     Some(Ok(Message::Text(text))) => {
                                         let _ = events.send(text.to_string());
+                                        if std::mem::take(&mut first_reply) && is_unauthorized(&text) {
+                                            rejected = true;
+                                            break "token rejected".to_string();
+                                        }
                                     }
                                     Some(Ok(Message::Close(frame))) => {
                                         break frame
@@ -105,6 +128,11 @@ pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: E
                             }
                         }
                     };
+                    if rejected {
+                        emit_conn(&events, "unauthorized", Some(reason), attempt);
+                        reject_until_stopped(&mut commands, &events).await;
+                        return;
+                    }
                     emit_conn(&events, "disconnected", Some(reason), attempt);
                 }
             }
@@ -134,5 +162,24 @@ pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: E
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spots_auth_rejection_only() {
+        assert!(is_unauthorized(r#"{"type":"error","code":"unauthorized","message":"x"}"#));
+        assert!(!is_unauthorized(r#"{"type":"error","code":"not_found","message":"x"}"#));
+        assert!(!is_unauthorized(r#"{"type":"hello","proto":1}"#));
+        assert!(!is_unauthorized("not json"));
+    }
+
+    #[test]
+    fn echoes_op_id() {
+        assert_eq!(op_id_of(r#"{"type":"prompt","op_id":"op7"}"#).as_deref(), Some("op7"));
+        assert_eq!(op_id_of(r#"{"type":"watch_pane","pane_id":"w1:p1"}"#), None);
     }
 }
