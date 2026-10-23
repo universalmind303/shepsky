@@ -15,7 +15,7 @@
          token is the auth and Tailscale provides the transport encryption
          (or use `tailscale serve` for real wss://). -->
     <application
-        android:label="collie"
+        android:label="shepsky"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -29,19 +29,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- collie://pair?url=…&token=… pre-fills the pairing screen.
+            <!-- shepsky://pair?url=…&token=… pre-fills the pairing screen.
                  It never connects by itself: the user checks the URL and
                  taps Connect. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="collie" android:host="pair" />
+                <data android:scheme="shepsky" android:host="pair" />
             </intent-filter>
         </activity>
 
         <service
-            android:name=".service.CollieService"
+            android:name=".service.ShepskyService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 

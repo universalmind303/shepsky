@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// Smoke-test a running collie-bridge without a phone.
+// Smoke-test a running shepsky-bridge without a phone.
 //
 //   node scripts/smoke.mjs                      # auth + hello + state summary
 //   node scripts/smoke.mjs --watch-pane w1:p1   # ...plus first terminal frame
 //   node scripts/smoke.mjs --focus w1:p1        # ...plus a focus_agent round-trip
 //
-// Env: COLLIE_URL (default ws://127.0.0.1:7717/ws),
-//      COLLIE_TOKEN (default: read ~/.config/collie/token)
+// Env: SHEPSKY_URL (default ws://127.0.0.1:7717/ws),
+//      SHEPSKY_TOKEN (default: read ~/.config/shepsky/token)
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const url = process.env.COLLIE_URL ?? "ws://127.0.0.1:7717/ws";
+const url = process.env.SHEPSKY_URL ?? "ws://127.0.0.1:7717/ws";
 const token =
-  process.env.COLLIE_TOKEN ??
-  readFileSync(join(homedir(), ".config/collie/token"), "utf8").trim();
+  process.env.SHEPSKY_TOKEN ??
+  readFileSync(join(homedir(), ".config/shepsky/token"), "utf8").trim();
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -82,6 +82,6 @@ ws.onmessage = (event) => {
 };
 
 ws.onerror = () => {
-  console.error(`could not connect to ${url} — is \`collie-bridge serve\` running?`);
+  console.error(`could not connect to ${url} — is \`shepsky-bridge serve\` running?`);
   process.exit(1);
 };

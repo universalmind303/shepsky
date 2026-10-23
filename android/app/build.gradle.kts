@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.collie"
+    namespace = "dev.shepsky"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.collie"
+        applicationId = "dev.shepsky"
         minSdk = 31
         targetSdk = 35
         versionCode = 1
@@ -35,14 +35,14 @@ android {
     }
 }
 
-// Build the Rust core and drop libcollie_android.so into jniLibs before the
-// Android build packages it. ABIs: -Pcollie.abis=arm64-v8a,x86_64 to add the
+// Build the Rust core and drop libshepsky_android.so into jniLibs before the
+// Android build packages it. ABIs: -Pshepsky.abis=arm64-v8a,x86_64 to add the
 // Intel-emulator one.
 val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     group = "build"
-    description = "Build the Rust core (collie-android) for Android"
+    description = "Build the Rust core (shepsky-android) for Android"
     workingDir = rootDir.parentFile // repo root
-    val abis = (project.findProperty("collie.abis") as String? ?: "arm64-v8a")
+    val abis = (project.findProperty("shepsky.abis") as String? ?: "arm64-v8a")
         .split(',')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
@@ -50,7 +50,7 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     abis.forEach { args += listOf("-t", it) }
     args += listOf(
         "-o", "android/app/src/main/jniLibs",
-        "build", "-p", "collie-android", "--release",
+        "build", "-p", "shepsky-android", "--release",
     )
     commandLine("cargo", *args.toTypedArray())
     environment(

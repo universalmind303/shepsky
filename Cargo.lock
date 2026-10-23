@@ -235,58 +235,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
-name = "collie-android"
-version = "0.1.0"
-dependencies = [
- "android_logger",
- "collie-client",
- "jni",
- "log",
-]
-
-[[package]]
-name = "collie-bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "collie-core",
- "futures-util",
- "rand",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "collie-client"
-version = "0.1.0"
-dependencies = [
- "collie-core",
- "futures-util",
- "log",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.26.2",
-]
-
-[[package]]
-name = "collie-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "vt100",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -948,6 +896,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shepsky-android"
+version = "0.1.0"
+dependencies = [
+ "android_logger",
+ "jni",
+ "log",
+ "shepsky-client",
+]
+
+[[package]]
+name = "shepsky-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures-util",
+ "rand",
+ "serde",
+ "serde_json",
+ "shepsky-core",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "shepsky-client"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls",
+ "serde",
+ "serde_json",
+ "shepsky-core",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+]
+
+[[package]]
+name = "shepsky-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "vt100",
 ]
 
 [[package]]

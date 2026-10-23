@@ -1,0 +1,15 @@
+[package]
+name = "shepsky-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "shepsky_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+shepsky-client = { path = "../shepsky-client" }
+jni = "0.21"
+log = "0.4"
+android_logger = "0.14"

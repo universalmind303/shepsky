@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A pretend coding agent for the collie demo. Run INSIDE a herdr pane: it
+// A pretend coding agent for the shepsky demo. Run INSIDE a herdr pane: it
 // reports its own state to herdr (like a real integration), prints a fake
 // work log, periodically asks for permission, and reacts to what you send
 // from the phone:
@@ -57,7 +57,7 @@ function report(state, message) {
         method: "pane.report_agent",
         params: {
           pane_id: PANE,
-          source: "collie-demo",
+          source: "shepsky-demo",
           agent: KIND,
           state,
           seq,
@@ -259,6 +259,6 @@ process.on("SIGTERM", quit);
 
 // --- go ----------------------------------------------------------------------
 process.stdout.write("\x1b[2J\x1b[H");
-out(c.bold(`${KIND} (fake)`) + c.dim(" — collie demo agent · ctrl-c to quit"));
+out(c.bold(`${KIND} (fake)`) + c.dim(" — shepsky demo agent · ctrl-c to quit"));
 // Stagger agents so their statuses don't all move in lockstep.
 setTimeout(() => startWork(TASK), 1000 + Math.random() * 6000);

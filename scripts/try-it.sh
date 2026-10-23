@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Try collie on this Mac: no phone, no real agents, no tokens spent.
+# Try shepsky on this Mac: no phone, no real agents, no tokens spent.
 #
 #   scripts/try-it.sh        # emulator + app + demo, pairing filled in
 #   scripts/try-it.sh down   # stop the demo and the emulator
 #
 # What it does, each step skipped when already done:
 #   1. checks the toolchain and installs the missing Android SDK pieces
-#   2. creates an Android emulator ("collie", Pixel 7, Android 15)
+#   2. creates an Android emulator ("shepsky", Pixel 7, Android 15)
 #   3. boots it in a window
 #   4. builds the app and installs it
 #   5. starts the demo (scripts/demo-session.sh: fake agents in a sandboxed
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-AVD="${COLLIE_AVD:-collie}"
+AVD="${SHEPSKY_AVD:-shepsky}"
 API=35
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 ADB="$ANDROID_HOME/platform-tools/adb"
@@ -23,7 +23,7 @@ EMULATOR="$ANDROID_HOME/emulator/emulator"
 SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
 AVD_DIR="${ANDROID_AVD_HOME:-$HOME/.android/avd}/$AVD.avd"
-RUN_DIR="${TMPDIR:-/tmp}/collie-demo"
+RUN_DIR="${TMPDIR:-/tmp}/shepsky-demo"
 mkdir -p "$RUN_DIR"
 
 if [ "$(uname -m)" = "arm64" ]; then
@@ -105,7 +105,7 @@ else
   fi
   # Type with the Mac keyboard; draw with the Mac's GPU ("auto" can pick a
   # software renderer that makes typing crawl). If the window comes up
-  # blank, re-run with COLLIE_EMULATOR_ARGS="-gpu swiftshader_indirect".
+  # blank, re-run with SHEPSKY_EMULATOR_ARGS="-gpu swiftshader_indirect".
   config="$AVD_DIR/config.ini"
   for kv in hw.keyboard=yes hw.gpu.enabled=yes hw.gpu.mode=host; do
     key="${kv%%=*}"
@@ -117,8 +117,8 @@ else
   done
 
   step "booting the emulator (a window will open)"
-  # shellcheck disable=SC2086 # COLLIE_EMULATOR_ARGS is a list of flags
-  nohup "$EMULATOR" -avd "$AVD" ${COLLIE_EMULATOR_ARGS:-} >"$RUN_DIR/emulator.log" 2>&1 &
+  # shellcheck disable=SC2086 # SHEPSKY_EMULATOR_ARGS is a list of flags
+  nohup "$EMULATOR" -avd "$AVD" ${SHEPSKY_EMULATOR_ARGS:-} >"$RUN_DIR/emulator.log" 2>&1 &
   emulator_pid=$!
   for _ in $(seq 1 120); do
     kill -0 "$emulator_pid" 2>/dev/null || die "the emulator exited; see $RUN_DIR/emulator.log"
@@ -134,7 +134,7 @@ fi
 
 # --- 4. app -------------------------------------------------------------------
 step "building and installing the app (the first build takes a few minutes)"
-(cd "$REPO/android" && ANDROID_SERIAL="$serial" ./gradlew -q installDebug "-Pcollie.abis=$ABI")
+(cd "$REPO/android" && ANDROID_SERIAL="$serial" ./gradlew -q installDebug "-Pshepsky.abis=$ABI")
 
 # --- 5. demo ------------------------------------------------------------------
 step "starting the demo"

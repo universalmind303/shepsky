@@ -1,10 +1,10 @@
 <p align="center"><img src="docs/images/icon.png" width="88" alt=""></p>
 
-<h1 align="center">collie</h1>
+<h1 align="center">shepsky</h1>
 
 <p align="center">
 Watch and answer your <a href="https://herdr.dev">herdr</a> coding agents from your phone.<br>
-A collie works the herd so the herder doesn't have to stand in the field.
+Half shepherd, half husky: a shepsky keeps an eye on the herd and runs the news back to you.
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@ A collie works the herd so the herder doesn't have to stand in the field.
   <img src="docs/images/agent.png" width="250" alt="An agent asking for permission: its latest output, and quick replies lit up.">
 </p>
 
-Your agents run in herdr on your Mac. collie puts them in your pocket:
+Your agents run in herdr on your Mac. shepsky puts them in your pocket:
 
 - **See every agent at a glance** — which are working, which finished, which
   are stuck waiting on you.
@@ -32,7 +32,7 @@ Your agents run in herdr on your Mac. collie puts them in your pocket:
 
 ```
 ┌─────────── Mac ───────────┐          ┌───── Android ─────┐
-│ herdr ⇄ collie-bridge     │ ws(s)/   │ Rust core (JNI)   │
+│ herdr ⇄ shepsky-bridge    │ ws(s)/   │ Rust core (JNI)   │
 │         (Rust, :7717)     │ tailnet  │  ⇄ Compose app    │
 └───────────────────────────┘          └───────────────────┘
 ```
@@ -77,10 +77,10 @@ downloads a few GB (SDK, emulator image, Gradle); later runs take seconds.
 **1. Start the bridge on your Mac** (where herdr runs):
 
 ```sh
-cargo run -p collie-bridge -- serve
+cargo run -p shepsky-bridge -- serve
 ```
 
-It binds `127.0.0.1:7717` and prints what it's doing. `collie-bridge status
+It binds `127.0.0.1:7717` and prints what it's doing. `shepsky-bridge status
 --watch` gives you the same live view in the terminal, no phone needed.
 
 **2. Expose it to your phone** (pick one):
@@ -89,7 +89,7 @@ It binds `127.0.0.1:7717` and prints what it's doing. `collie-bridge status
 |---|---|---|
 | Android emulator on the Mac | `ws://10.0.2.2:7717/ws` | nothing |
 | On your tailnet (recommended) | `wss://<mac>.<tailnet>.ts.net/ws` | `tailscale serve --bg --https=443 http://127.0.0.1:7717` |
-| Same Wi-Fi | `ws://<mac-LAN-IP>:7717/ws` | `collie-bridge serve --bind 0.0.0.0:7717` — token is the only gate, prefer Tailscale |
+| Same Wi-Fi | `ws://<mac-LAN-IP>:7717/ws` | `shepsky-bridge serve --bind 0.0.0.0:7717` — token is the only gate, prefer Tailscale |
 
 Never expose the port publicly (`tailscale funnel`, port-forwards).
 
@@ -100,18 +100,18 @@ cd android
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew installDebug
 ```
 
-**4. Pair.** Run `collie-bridge pair` on the Mac, type the URL + token into
+**4. Pair.** Run `shepsky-bridge pair` on the Mac, type the URL + token into
 the app, hit Connect. Done — the overview fills in, and notifications arrive
 from your agents.
 
 <img src="docs/images/pair.png" width="220" alt="The pairing screen.">
 
-Opening `collie://pair?url=<url-encoded URL>&token=<token>` on the phone fills
+Opening `shepsky://pair?url=<url-encoded URL>&token=<token>` on the phone fills
 in the pairing screen for you (it never connects until you tap Connect).
 
 ## Themes
 
-collie looks like what it is, a herdr client: a terminal, not a Material app.
+shepsky looks like what it is, a herdr client: a terminal, not a Material app.
 It follows herdr's theme (the bridge reads `[theme]` from herdr's
 `config.toml`, auto-switch included), or you can pick any of herdr's 18
 built-in themes in Settings. Terminal output is drawn with the theme's own 16
@@ -131,7 +131,7 @@ scripts/demo-session.sh up     # demo herdr session + fake agents + bridge on :7
 scripts/demo-session.sh down
 ```
 
-- The demo runs its own herdr session (`collie-demo`) and its own bridge on
+- The demo runs its own herdr session (`shepsky-demo`) and its own bridge on
   port 7718, so your real session and a real bridge on 7717 are untouched.
 - The fake agents (`scripts/fake-agent.mjs`) report their state to herdr like
   a real integration. They work through a task, sometimes stop to ask
@@ -148,9 +148,9 @@ scripts/demo-session.sh down
 
 | path | what |
 |---|---|
-| `crates/collie-core` | shared Rust: herdr types, session store, notification dedup, protocol, ANSI→styled frames |
-| `crates/collie-bridge` | Mac daemon: herdr socket sync + phone WebSocket server (`serve`, `status`, `pair`) |
-| `crates/collie-android` | Rust cdylib behind a 3-function JNI surface |
+| `crates/shepsky-core` | shared Rust: herdr types, session store, notification dedup, protocol, ANSI→styled frames |
+| `crates/shepsky-bridge` | Mac daemon: herdr socket sync + phone WebSocket server (`serve`, `status`, `pair`) |
+| `crates/shepsky-android` | Rust cdylib behind a 3-function JNI surface |
 | `android/` | Kotlin + Jetpack Compose app |
 | `scripts/` | `try-it.sh` (emulator + app + demo), `demo-session.sh` + `demo.mjs` + `fake-agent.mjs` (the demo), `smoke.mjs` (fake phone) |
 | `docs/PROTOCOL.md` | bridge ↔ phone protocol |
@@ -162,11 +162,11 @@ scripts/demo-session.sh down
 
 - **The bridge is the gatekeeper.** herdr's socket accepts input injection
   from anyone who can open it, so the bridge binds loopback only, requires a
-  bearer token (`~/.config/collie/token`, created on first run, 0600) as the
+  bearer token (`~/.config/shepsky/token`, created on first run, 0600) as the
   first message of every connection, and only ever calls an explicit
   allowlist of herdr methods: reads plus `agent.prompt`, `agent.send_keys`,
   `agent.focus`, `pane.send_keys` and `pane.send_text`.
-- **collie can't type into a shell.** Prompts go through herdr's
+- **shepsky can't type into a shell.** Prompts go through herdr's
   `agent.prompt` and keys through `agent.send_keys`. herdr only delivers them
   when the pane's foreground process really is that agent, and refuses a
   prompt while the agent is waiting on a question. If the agent has exited

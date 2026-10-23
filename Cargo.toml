@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/collie-core",
-    "crates/collie-bridge",
-    "crates/collie-client",
-    "crates/collie-android",
+    "crates/shepsky-core",
+    "crates/shepsky-bridge",
+    "crates/shepsky-client",
+    "crates/shepsky-android",
 ]
 
 [workspace.package]
@@ -21,4 +21,4 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-uti
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-collie-core = { path = "crates/collie-core" }
+shepsky-core = { path = "crates/shepsky-core" }

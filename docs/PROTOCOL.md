@@ -2,8 +2,8 @@
 
 One WebSocket (`/ws` on the bridge), JSON text messages, tagged by `"type"`.
 Both sides ignore unknown fields. The canonical types live in
-`crates/collie-core/src/protocol.rs`; the Kotlin mirrors live in
-`android/app/src/main/java/dev/collie/core/Protocol.kt`. Changing a shape is a
+`crates/shepsky-core/src/protocol.rs`; the Kotlin mirrors live in
+`android/app/src/main/java/dev/shepsky/core/Protocol.kt`. Changing a shape is a
 protocol break: bump `PROTO_VERSION` in both places.
 
 ## Model
@@ -82,7 +82,7 @@ phase `unauthorized` instead of retrying.
 ## Trying it
 
 ```sh
-cargo run -p collie-bridge -- serve &
+cargo run -p shepsky-bridge -- serve &
 node scripts/smoke.mjs                      # hello + state
 node scripts/smoke.mjs --watch-pane w1:p1   # + first terminal frame
 ```

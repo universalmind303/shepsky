@@ -30,7 +30,7 @@ error lists every supported method).
   `tab_id`, `pane_id`, `focused`, `revision`, `state_change_seq`. Everything
   else (`name`, `agent`, `title`, `terminal_title*`, `tokens`,
   `agent_session`, `completion_seq`, `cwd`, `foreground_cwd`, `state_labels`)
-  is omitted when empty → `Option` in `collie-core`.
+  is omitted when empty → `Option` in `shepsky-core`.
 - IDs (`w15`, `w15:t1`, `w15:p7`) are opaque, persisted across restarts. A
   pane moved across workspaces gets a **new pane id** (`pane.moved` carries
   `previous_pane_id`). `terminal_id` survives moves, not cold restarts.
@@ -45,7 +45,7 @@ error lists every supported method).
   change; resets on server restart.
 - `completion_seq`: the counter value at the agent's last "finished work"
   transition. `(terminal_id, completion_seq)` dedups Finished notifications
-  (`collie-core::notify`).
+  (`shepsky-core::notify`).
 - `blocked` detection for Claude/Codex is screen-heuristic based.
 
 ## Events (`events.subscribe`)
