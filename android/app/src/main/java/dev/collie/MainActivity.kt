@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import dev.collie.ui.App
 import dev.collie.ui.CollieTheme
+import dev.collie.ui.ThemeSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Pairing details from a `collie://pair?url=…&token=…` link. */
@@ -16,6 +17,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ThemeSettings.load(this)
         // Only on a fresh start: a recreated activity (rotation…) would
         // otherwise replay the notification tap or pairing link.
         if (savedInstanceState == null) handle(intent)

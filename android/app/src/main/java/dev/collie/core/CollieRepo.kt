@@ -61,6 +61,11 @@ object CollieRepo {
     private val _state = MutableStateFlow(StateView())
     val state: StateFlow<StateView> = _state.asStateFlow()
 
+    private val _herdrTheme = MutableStateFlow<HerdrThemeView?>(null)
+
+    /** herdr's theme, from the bridge's hello (null until the first one). */
+    val herdrTheme: StateFlow<HerdrThemeView?> = _herdrTheme.asStateFlow()
+
     /** Notifications (needs_input / finished) as they happen. */
     val notes = MutableSharedFlow<NoteView>(extraBufferCapacity = 16)
 
@@ -227,6 +232,7 @@ object CollieRepo {
                     }
                 }
                 "hello" -> {
+                    obj["herdr_theme"]?.let { _herdrTheme.value = json.decodeFromJsonElement<HerdrThemeView>(it) }
                     _conn.value = ConnState.Connected
                     // A fresh connection has no watches yet.
                     synchronized(watchCounts) { watchCounts.keys.toList() }.forEach(::sendWatch)

@@ -9,6 +9,17 @@ import kotlinx.serialization.Serializable
  */
 const val PROTO_VERSION = 1
 
+/** herdr's theme from `hello` (`dark`/`light` set when herdr auto-switches). */
+@Serializable
+data class HerdrThemeView(
+    val name: String,
+    val dark: String? = null,
+    val light: String? = null,
+) {
+    fun pick(systemDark: Boolean): String =
+        if (dark != null && light != null) (if (systemDark) dark else light) else name
+}
+
 @Serializable
 data class StateView(
     val herdr_version: String = "",
