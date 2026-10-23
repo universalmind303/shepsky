@@ -44,11 +44,12 @@ fun OverviewScreen(
     Scaffold(
         topBar = {
             TopLine(
+                // Theme last: on a narrow screen it's the part that can go.
                 segments(
                     Seg("collie", t.accent, bold = true),
-                    Seg(t.id, t.dim),
                     Seg(if (count == 1) "1 agent" else "$count agents"),
                     linkSeg(),
+                    Seg(t.id, t.dim),
                 ),
                 actions = { TapText("[≡]", onOpenSettings, contentDescription = "Settings") },
             )
