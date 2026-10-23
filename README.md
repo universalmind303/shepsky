@@ -2,6 +2,11 @@
 
 <h1 align="center">shepsky</h1>
 
+Start, rename, close, and the interactive demo are temporarily unavailable
+while their herdr operations lack atomic safety checks. Watching agents,
+chat, notifications, prompts, and quick replies remain available. See
+[the security boundaries](docs/SECURITY.md) before exposing the bridge.
+
 <p align="center">
 Watch and answer your <a href="https://herdr.dev">herdr</a> coding agents from your phone.<br>
 Half shepherd, half husky: a shepsky keeps an eye on the herd and runs the news back to you.
@@ -26,9 +31,8 @@ Your agents run in herdr on your Mac. shepsky puts them in your pocket:
   Codex, pi), with the whole history a scroll away. The live terminal is one
   tab over.
 - **Send new prompts** and **watch the live terminal**, in your herdr theme.
-- **Start a new agent** (claude, codex or pi) in a new workspace or a new tab
-  of an existing one, right from the phone; long-press one to rename or
-  close it.
+- **Manage agent lifecycles on the Mac** for now. Phone requests to start,
+  rename, or close agents return an explicit unavailable error.
 - **Private by design** — your Mac talks to your phone directly (ideally over
   your tailnet). No cloud, no account, no third server.
 

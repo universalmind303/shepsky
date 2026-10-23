@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use shepsky_core::herdr::{Pong, Request, Response, Snapshot, SnapshotResult};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 /// Every herdr method the bridge is allowed to call, ever. The socket itself
@@ -35,20 +35,10 @@ const ALLOWED_METHODS: &[&str] = &[
     "agent.prompt",
     "agent.send_keys",
     "agent.focus",
-    "pane.send_keys",
-    "pane.send_text",
     // starting agents from the phone (guardrails in start.rs); the closes
     // only ever undo a workspace/tab start.rs just made for a failed start
-    "workspace.create",
-    "tab.create",
-    "agent.start",
-    "workspace.close",
-    "tab.close",
     // renaming and closing agents (guardrails in ws.rs: only panes that
     // host an agent)
-    "agent.rename",
-    "pane.rename",
-    "pane.close",
 ];
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -118,14 +108,17 @@ impl HerdrClient {
         write_half.write_all(line.as_bytes()).await?;
         write_half.flush().await?;
 
-        let mut reader = BufReader::new(read_half);
+        let mut reader = BufReader::new(read_half).take(8 * 1024 * 1024 + 1);
         let mut response_line = String::new();
         let n = reader.read_line(&mut response_line).await?;
         if n == 0 {
             bail!("herdr closed the connection without responding");
         }
+        if n > 8 * 1024 * 1024 {
+            bail!("herdr response exceeds 8 MiB");
+        }
         serde_json::from_str(&response_line)
-            .with_context(|| format!("parse herdr response: {response_line}"))
+            .context("parse herdr response")
     }
 
     pub async fn ping(&self) -> Result<Pong> {

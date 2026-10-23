@@ -15,6 +15,9 @@
          token is the auth and Tailscale provides the transport encryption
          (or use `tailscale serve` for real wss://). -->
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="shepsky"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"

@@ -428,7 +428,11 @@ pub struct Window {
     calls: HashMap<String, u64>,
     /// Results read before their call (paging backwards).
     early: HashMap<String, (Option<String>, bool)>,
+    retained_bytes: usize,
 }
+
+const MAX_RETAINED_ITEMS: usize = 512;
+const MAX_RETAINED_BYTES: usize = 2 * 1024 * 1024;
 
 impl Window {
     /// Take parsed entries; returns new items and items that changed.
@@ -441,23 +445,43 @@ impl Window {
                         if let Some((output, error)) = self.early.remove(&call) {
                             finish(&mut item, output, error);
                         }
-                        self.calls.insert(call, item.id);
+                        if call.len() <= 256 {
+                            if self.calls.len() >= MAX_RETAINED_ITEMS {
+                                self.calls.clear();
+                            }
+                            self.calls.insert(call, item.id);
+                        }
                     }
                     changed.insert(item.id, item.clone());
-                    self.items.insert(item.id, item);
+                    self.retained_bytes += item_bytes(&item);
+                    if let Some(previous) = self.items.insert(item.id, item) {
+                        self.retained_bytes -= item_bytes(&previous);
+                    }
                 }
                 Entry::Done { call, output, error } => {
                     match self.calls.get(&call).and_then(|id| self.items.get_mut(id)) {
                         Some(item) => {
+                            self.retained_bytes -= item_bytes(item);
                             finish(item, output, error);
+                            self.retained_bytes += item_bytes(item);
                             changed.insert(item.id, item.clone());
                         }
                         None => {
-                            self.early.insert(call, (output, error));
+                            if call.len() <= 256 && output.as_ref().is_none_or(|s| s.len() <= 16 * 1024) {
+                                if self.early.len() >= 128 {
+                                    self.early.clear();
+                                }
+                                self.early.insert(call, (output, error));
+                            }
                         }
                     }
                 }
             }
+            while self.items.len() > MAX_RETAINED_ITEMS || self.retained_bytes > MAX_RETAINED_BYTES {
+                let Some((_, removed)) = self.items.pop_first() else { break };
+                self.retained_bytes -= item_bytes(&removed);
+            }
+            self.calls.retain(|_, id| self.items.contains_key(id));
         }
         changed.into_values().collect()
     }
@@ -469,6 +493,22 @@ impl Window {
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
+}
+
+fn item_bytes(item: &ChatItem) -> usize {
+    let bytes = match &item.body {
+        ChatBody::Prompt { text } | ChatBody::Reply { text } | ChatBody::Thinking { text } | ChatBody::Notice { text } => text.len(),
+        ChatBody::Tool { name, summary, detail, output, .. } => {
+            name.len() + summary.len() + detail.as_ref().map_or(0, String::len) + output.as_ref().map_or(0, String::len)
+        }
+        ChatBody::Question { questions, answer } => {
+            answer.as_ref().map_or(0, String::len) + questions.iter().map(|q| {
+                std::mem::size_of_val(q) + q.header.as_ref().map_or(0, String::len) + q.question.len()
+                    + q.options.iter().map(|s| std::mem::size_of::<String>() + s.len()).sum::<usize>()
+            }).sum::<usize>()
+        }
+    };
+    std::mem::size_of_val(item) + bytes
 }
 
 fn finish(item: &mut ChatItem, result: Option<String>, error: bool) {
@@ -649,5 +689,26 @@ mod tests {
         let update = w.add(vec![done(3)]);
         assert_eq!(update[0].id, 3);
         assert_eq!(w.len(), 3);
+    }
+
+    #[test]
+    fn retention_is_bounded_across_pages_and_unmatched_results() {
+        let mut window = Window::default();
+        for page in 0..20 {
+            let entries = (0..100).map(|n| {
+                let id = page * 100 + n;
+                Entry::Item { item: ChatItem { id, body: tool("Bash", "x".repeat(8192), None) }, call: Some(format!("call-{id}")) }
+            }).collect();
+            assert_eq!(window.add(entries).len(), 100);
+            assert!(window.items.len() <= MAX_RETAINED_ITEMS);
+            assert!(window.retained_bytes <= MAX_RETAINED_BYTES);
+            assert!(window.calls.len() <= MAX_RETAINED_ITEMS);
+        }
+        for n in 0..1000 {
+            window.add(vec![Entry::Done { call: format!("missing-{n}"), output: Some("x".repeat(8192)), error: false }]);
+            assert!(window.early.len() <= 128);
+        }
+        window.add(vec![Entry::Item { item: ChatItem { id: 9999, body: ChatBody::Reply { text: "x".repeat(MAX_RETAINED_BYTES + 1) } }, call: None }]);
+        assert!(window.retained_bytes <= MAX_RETAINED_BYTES);
     }
 }

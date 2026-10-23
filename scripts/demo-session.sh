@@ -41,6 +41,8 @@ prefill_emulator() {
 
 case "${1:-up}" in
   up)
+    echo "demo startup is disabled until herdr supports guarded demo operations" >&2
+    exit 1
     if [ ! -S "$SOCK" ]; then
       echo "starting demo herdr session '$SESSION'…"
       nohup herdr --session "$SESSION" server >"$RUN_DIR/herdr.log" 2>&1 &

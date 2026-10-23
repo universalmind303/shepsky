@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum::http::StatusCode;
 use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
@@ -22,7 +23,7 @@ use shepsky_core::herdr::AgentStatus;
 use shepsky_core::protocol::{ClientMsg, PROTO_VERSION, ServerMsg, StateView};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{Semaphore, broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::auth::token_matches;
@@ -33,11 +34,16 @@ use crate::sync::UiState;
 use crate::terminal::TerminalHub;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_AUTH_BYTES: usize = 1024;
+const MAX_CONNECTIONS: usize = 4;
+static CONNECTIONS: Semaphore = Semaphore::const_new(MAX_CONNECTIONS);
 const MAX_WATCHED_PANES: usize = 8;
 const MAX_WATCHED_CHATS: usize = 4;
 const MAX_PROMPT_BYTES: usize = 8 * 1024;
 const MAX_KEYS: usize = 32;
-const OUTBOX_CAP: usize = 64;
+const OUTBOX_CAP: usize = 8;
 
 pub struct ServeState {
     pub ui_rx: watch::Receiver<UiState>,
@@ -75,11 +81,20 @@ async fn ws_handler(
     State(state): State<Arc<ServeState>>,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    upgrade.on_upgrade(move |socket| async move {
-        if let Err(err) = handle_conn(socket, state).await {
-            tracing::debug!(%err, "connection ended");
-        }
-    })
+    let Ok(permit) = CONNECTIONS.try_acquire() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    upgrade
+        .max_message_size(MAX_MESSAGE_BYTES)
+        .max_frame_size(MAX_MESSAGE_BYTES)
+        .read_buffer_size(8 * 1024)
+        .on_upgrade(move |socket| async move {
+            let _permit = permit;
+            if let Err(err) = handle_conn(socket, state).await {
+                tracing::debug!(%err, "connection ended");
+            }
+        })
+        .into_response()
 }
 
 fn to_text(msg: &ServerMsg) -> Message {
@@ -96,7 +111,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
         .context("closed before auth")??;
     let authed = matches!(
         &first,
-        Message::Text(text) if matches!(
+        Message::Text(text) if text.len() <= MAX_AUTH_BYTES && matches!(
             serde_json::from_str::<ClientMsg>(text),
             Ok(ClientMsg::Auth { token }) if token_matches(&state.token, &token)
         )
@@ -116,13 +131,13 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
 
     // --- single-writer outbox ---------------------------------------------
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMsg>(OUTBOX_CAP);
-    let writer: JoinHandle<()> = tokio::spawn(async move {
+    let mut writer: JoinHandle<()> = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
-            if sink.send(to_text(&msg)).await.is_err() {
+            if !matches!(tokio::time::timeout(WRITE_TIMEOUT, sink.send(to_text(&msg))).await, Ok(Ok(()))) {
                 break;
             }
         }
-        let _ = sink.close().await;
+        let _ = tokio::time::timeout(WRITE_TIMEOUT, sink.close()).await;
     });
 
     let mut ui_rx = state.ui_rx.clone();
@@ -135,7 +150,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
             bridge_version: env!("CARGO_PKG_VERSION").into(),
             herdr_version: ui.store.herdr_version.clone(),
             herdr_theme: Some(crate::herdr_theme::load()),
-            start_kinds: crate::start::KINDS.iter().map(|k| k.to_string()).collect(),
+            start_kinds: Vec::new(),
         }
     };
     out_tx.send(hello).await.ok();
@@ -152,14 +167,25 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
     let mut watched: HashMap<String, JoinHandle<()>> = HashMap::new();
     // Dropping a chat watch stops it.
     let mut chats: HashMap<String, ChatWatch> = HashMap::new();
+    let mut request_window = tokio::time::Instant::now();
+    let mut requests = 0;
 
     let result: Result<()> = async {
         loop {
             tokio::select! {
+                _ = &mut writer => break,
                 inbound = stream.next() => {
                     let Some(msg) = inbound else { break };
                     match msg? {
                         Message::Text(text) => {
+                            if request_window.elapsed() >= Duration::from_secs(1) {
+                                request_window = tokio::time::Instant::now();
+                                requests = 0;
+                            }
+                            requests += 1;
+                            if requests > 32 {
+                                break;
+                            }
                             handle_client_msg(&text, &state, &ui_rx, &out_tx, &mut watched, &mut chats).await;
                         }
                         Message::Close(_) => break,
@@ -231,6 +257,15 @@ async fn handle_client_msg(
             return;
         }
     };
+
+    if !fields_within_limits(&msg) {
+        send_err("too_large", "request field exceeds its size limit".into(), None).await;
+        return;
+    }
+    if let Some(op_id) = unsafe_operation(&msg, state.demo_input) {
+        send_err("operation_unavailable", "this action is currently available only from herdr on your Mac".into(), op_id).await;
+        return;
+    }
 
     match msg {
         ClientMsg::Auth { .. } => {} // already authed; ignore
@@ -337,7 +372,7 @@ async fn handle_client_msg(
                 // in the foreground and not waiting on a question.
                 vec![("agent.prompt", json!({ "target": pane_id, "text": text }))]
             };
-            run_herdr_ops(state, out_tx, op_id, ops);
+            run_herdr_ops(state, out_tx, op_id, ops).await;
         }
 
         ClientMsg::SendKeys { pane_id, keys, op_id } => {
@@ -355,7 +390,7 @@ async fn handle_client_msg(
                 // Guarded by herdr: only delivered to a live agent process.
                 ("agent.send_keys", json!({ "target": pane_id, "keys": keys }))
             };
-            run_herdr_ops(state, out_tx, op_id, vec![op]);
+            run_herdr_ops(state, out_tx, op_id, vec![op]).await;
         }
 
         ClientMsg::FocusAgent { pane_id, op_id } => {
@@ -366,7 +401,7 @@ async fn handle_client_msg(
             run_herdr_ops(
                 state, out_tx, op_id,
                 vec![("agent.focus", json!({ "target": pane_id }))],
-            );
+            ).await;
         }
 
         ClientMsg::RenameAgent { pane_id, name, op_id } => {
@@ -385,7 +420,7 @@ async fn handle_client_msg(
                     ("agent.rename", json!({ "target": pane_id, "name": name })),
                     ("pane.rename", json!({ "pane_id": pane_id, "label": name })),
                 ],
-            );
+            ).await;
         }
 
         ClientMsg::CloseAgent { pane_id, op_id } => {
@@ -402,7 +437,7 @@ async fn handle_client_msg(
                     ("agent.get", json!({ "target": pane_id })),
                     ("pane.close", json!({ "pane_id": pane_id })),
                 ],
-            );
+            ).await;
         }
 
         ClientMsg::StartAgent { kind, name, workspace_id, cwd, label, op_id } => {
@@ -418,14 +453,41 @@ async fn handle_client_msg(
             let client = state.client.clone();
             let demo_agent = state.demo_agent.clone();
             let out = out_tx.clone();
-            tokio::spawn(async move {
+            {
                 let reply = match start::run(&client, plan, demo_agent.as_deref()).await {
                     Ok(pane_id) => ServerMsg::Ack { op_id, pane_id: Some(pane_id) },
                     Err(err) => error_reply(&err, op_id),
                 };
                 out.send(reply).await.ok();
-            });
+            }
         }
+    }
+}
+
+fn fields_within_limits(msg: &ClientMsg) -> bool {
+    let optional = |value: &Option<String>, max| value.as_ref().is_none_or(|s| s.len() <= max);
+    match msg {
+        ClientMsg::Auth { token } => token.len() <= MAX_AUTH_BYTES,
+        ClientMsg::Ping => true,
+        ClientMsg::WatchPane { pane_id } | ClientMsg::UnwatchPane { pane_id }
+        | ClientMsg::WatchChat { pane_id } | ClientMsg::UnwatchChat { pane_id }
+        | ClientMsg::ChatOlder { pane_id } => pane_id.len() <= 128,
+        ClientMsg::Prompt { pane_id, text, op_id } => pane_id.len() <= 128 && text.len() <= MAX_PROMPT_BYTES && optional(op_id, 128),
+        ClientMsg::SendKeys { pane_id, keys, op_id } => pane_id.len() <= 128 && keys.len() <= MAX_KEYS && keys.iter().all(|k| k.len() <= 32) && optional(op_id, 128),
+        ClientMsg::FocusAgent { pane_id, op_id } | ClientMsg::CloseAgent { pane_id, op_id } => pane_id.len() <= 128 && optional(op_id, 128),
+        ClientMsg::RenameAgent { pane_id, name, op_id } => pane_id.len() <= 128 && name.len() <= 32 && optional(op_id, 128),
+        ClientMsg::StartAgent { kind, name, workspace_id, cwd, label, op_id } => kind.len() <= 32 && optional(name, 32)
+            && optional(workspace_id, 128) && optional(cwd, 4096) && optional(label, 256) && optional(op_id, 128),
+    }
+}
+
+fn unsafe_operation(msg: &ClientMsg, demo: bool) -> Option<Option<String>> {
+    match msg {
+        ClientMsg::StartAgent { op_id, .. }
+        | ClientMsg::RenameAgent { op_id, .. }
+        | ClientMsg::CloseAgent { op_id, .. } => Some(op_id.clone()),
+        ClientMsg::Prompt { op_id, .. } | ClientMsg::SendKeys { op_id, .. } if demo => Some(op_id.clone()),
+        _ => None,
     }
 }
 
@@ -439,7 +501,7 @@ fn agent_status(ui_rx: &watch::Receiver<UiState>, pane_id: &str) -> Option<Agent
 
 /// Run herdr write calls in order off the connection loop (stopping at the
 /// first failure); report one Ack/Error for the whole op by op_id.
-fn run_herdr_ops(
+async fn run_herdr_ops(
     state: &Arc<ServeState>,
     out_tx: &mpsc::Sender<ServerMsg>,
     op_id: Option<String>,
@@ -447,7 +509,7 @@ fn run_herdr_ops(
 ) {
     let client = state.client.clone();
     let out = out_tx.clone();
-    tokio::spawn(async move {
+    {
         let mut result = Ok(serde_json::Value::Null);
         for (method, params) in calls {
             result = client.call(method, params).await;
@@ -460,7 +522,7 @@ fn run_herdr_ops(
             Err(err) => error_reply(&err, op_id),
         };
         out.send(reply).await.ok();
-    });
+    }
 }
 
 /// Surface herdr's own error code (e.g. `agent_not_ready`) so the app can
@@ -475,3 +537,7 @@ fn error_reply(err: &anyhow::Error, op_id: Option<String>) -> ServerMsg {
     };
     ServerMsg::Error { code, message, op_id }
 }
+
+#[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;

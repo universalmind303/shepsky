@@ -6,6 +6,25 @@ Both sides ignore unknown fields. The canonical types live in
 `android/app/src/main/java/dev/shepsky/core/Protocol.kt`. Changing a shape is a
 protocol break: bump `PROTO_VERSION` in both places.
 
+## Current security restrictions
+
+`start_agent`, `rename_agent`, and `close_agent` return
+`operation_unavailable` without calling herdr. `hello` offers no start kinds.
+These message shapes remain defined for compatibility; safe lifecycle
+operations require atomic checks in herdr before they can be enabled again.
+Demo startup is disabled, including raw pane input.
+
+Incoming WebSocket messages and frames are limited to 64 KiB; the first auth
+message must fit in 1 KiB. At most four WebSocket connections are admitted,
+including connections awaiting authentication. A fifth upgrade returns 503.
+Connections exceeding 32 text requests per second are closed. `op_id` and
+pane/workspace IDs are limited to 128 bytes, names/kinds to 32 bytes,
+directory strings to 4096 bytes, and labels to 256 bytes.
+
+The bearer token grants visible-terminal reads across the herdr session,
+including plain-shell panes. The agent list in the phone UI is not a read
+authorization boundary. See [SECURITY.md](SECURITY.md).
+
 ## Model
 
 - The bridge pushes the **full `state`** on every change (it's a few KB).

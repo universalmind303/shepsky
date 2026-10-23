@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rand::RngCore;
+use subtle::ConstantTimeEq;
 
 pub fn config_dir() -> Result<PathBuf> {
     let home = std::env::var_os("HOME").context("HOME is not set")?;
@@ -75,7 +76,7 @@ pub fn token_matches(expected: &str, presented: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    bool::from(a.ct_eq(b))
 }
 
 #[cfg(test)]

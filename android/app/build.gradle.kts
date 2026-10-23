@@ -55,7 +55,7 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     abis.forEach { args += listOf("-t", it) }
     args += listOf(
         "-o", "android/app/src/main/jniLibs",
-        "build", "-p", "shepsky-android", "--release",
+        "build", "-p", "shepsky-android", "--release", "--locked",
     )
     commandLine("cargo", *args.toTypedArray())
     environment(

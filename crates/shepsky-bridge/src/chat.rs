@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -26,6 +27,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::herdr_client::HerdrClient;
+use crate::secure_file;
 use crate::sync::UiState;
 
 const POLL: Duration = Duration::from_millis(400);
@@ -39,7 +41,7 @@ const CHUNK: u64 = 128 * 1024;
 /// Stop a page at this much reading even if it has few items.
 const MAX_PAGE_BYTES: u64 = 8 * 1024 * 1024;
 /// A line longer than this can't be paged past.
-const MAX_LINE: u64 = 32 * 1024 * 1024;
+const MAX_LINE: u64 = 8 * 1024 * 1024;
 /// New bytes read per poll; a burst is caught up over a few polls.
 const MAX_FOLLOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Codex rollouts this recent are candidates when the agent didn't report.
@@ -153,7 +155,7 @@ async fn follow(
             };
             let found = match resolved {
                 Ok(Resolved::One(target)) => Ok(target),
-                Ok(Resolved::Codex { candidates, lone }) => choose(&client, &pane_id, candidates, lone, &mut choice)
+                Ok(Resolved::Codex { candidates, lone }) => choose(&client, &pane_id, candidates, lone, &mut choice, &places.root(Format::Codex))
                     .await
                     .map(|path| Target { format: Format::Codex, path }),
                 Err(reason) => Err(reason),
@@ -310,6 +312,7 @@ async fn choose(
     candidates: Vec<PathBuf>,
     lone: bool,
     cache: &mut Option<Choice>,
+    root: &Path,
 ) -> Result<PathBuf, String> {
     let cached = cache.as_ref().filter(|c| c.candidates == candidates && c.at.elapsed() < CODEX_RECHECK);
     let chosen = match cached {
@@ -319,7 +322,7 @@ async fn choose(
                 .call("pane.read", serde_json::json!({ "pane_id": pane_id, "source": "visible", "format": "text" }))
                 .await;
             let screen = read.ok().and_then(|r| r["read"]["text"].as_str().map(str::to_string)).unwrap_or_default();
-            let chosen = tokio::task::block_in_place(|| best_match(&screen, &candidates));
+            let chosen = tokio::task::block_in_place(|| best_match(&screen, &candidates, root));
             tracing::debug!(pane_id, chosen = ?chosen.as_ref().map(|p| p.display().to_string()), "codex conversation by screen");
             *cache = Some(Choice { candidates: candidates.clone(), chosen: chosen.clone(), at: Instant::now() });
             chosen
@@ -334,7 +337,7 @@ async fn choose(
 }
 
 /// The candidate whose end best matches `screen`, if any clearly does.
-fn best_match(screen: &str, candidates: &[PathBuf]) -> Option<PathBuf> {
+fn best_match(screen: &str, candidates: &[PathBuf], root: &Path) -> Option<PathBuf> {
     let wanted: HashSet<u64> = runs(screen).collect();
     if wanted.is_empty() {
         return None;
@@ -342,8 +345,11 @@ fn best_match(screen: &str, candidates: &[PathBuf]) -> Option<PathBuf> {
     let mut scores: Vec<(usize, &PathBuf)> = candidates
         .iter()
         .map(|path| {
-            let tail = std::fs::metadata(path)
-                .and_then(|m| File::open(path).and_then(|mut f| read_range(&mut f, m.len().saturating_sub(CODEX_TAIL), m.len())))
+            let tail = secure_file::open_under(root, path)
+                .and_then(|mut f| {
+                    let len = f.metadata()?.len();
+                    read_range(&mut f, len.saturating_sub(CODEX_TAIL), len)
+                })
                 .unwrap_or_default();
             let text = String::from_utf8_lossy(&tail);
             let found: HashSet<u64> = runs(&text).filter(|r| wanted.contains(r)).collect();
@@ -443,6 +449,9 @@ type CodexMetas = HashMap<PathBuf, Option<(String, bool)>>;
 /// Recent interactive rollouts that started in `cwd` (and, given `threads`,
 /// are one of them), newest first.
 fn codex_candidates(root: &Path, cwd: &str, threads: Option<&[String]>, metas: &mut CodexMetas) -> Vec<PathBuf> {
+    if metas.len() >= 512 {
+        metas.clear();
+    }
     if cwd.is_empty() {
         return Vec::new();
     }
@@ -458,8 +467,12 @@ fn codex_candidates(root: &Path, cwd: &str, threads: Option<&[String]>, metas: &
             if threads.is_some_and(|ids| !ids.iter().any(|id| name.ends_with(&format!("-{id}.jsonl")))) {
                 continue;
             }
+            if metas.len() >= 512 {
+                metas.clear();
+            }
             let meta = metas.entry(path.clone()).or_insert_with(|| {
-                let first = first_line(&path)?;
+                let mut file = secure_file::open_under(root, &path).ok()?;
+                let first = first_line(&mut file)?;
                 let p = &first["payload"];
                 let interactive = p["source"] != "exec"
                     && p["source"].get("subagent").is_none()
@@ -486,9 +499,14 @@ fn codex_thread_name(agent: &Agent) -> Option<String> {
 
 /// Thread ids with this name, from `~/.codex/session_index.jsonl`.
 fn codex_threads_named(home: &Path, name: &str) -> Vec<String> {
-    let Ok(index) = std::fs::read_to_string(home.join(".codex/session_index.jsonl")) else {
+    let mut index = String::new();
+    let path = home.join(".codex/session_index.jsonl");
+    let Ok(file) = secure_file::open_under(&home.join(".codex"), &path) else {
         return Vec::new();
     };
+    if file.take(4 * 1024 * 1024 + 1).read_to_string(&mut index).is_err() || index.len() > 4 * 1024 * 1024 {
+        return Vec::new();
+    }
     let cut = name.strip_suffix("...").or_else(|| name.strip_suffix('…'));
     index
         .lines()
@@ -542,9 +560,10 @@ fn files(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file()).collect()
 }
 
-fn first_line(path: &Path) -> Option<Value> {
+fn first_line(file: &mut File) -> Option<Value> {
     let mut buf = vec![0u8; 64 * 1024];
-    let n = File::open(path).ok()?.read(&mut buf).ok()?;
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let n = file.read(&mut buf).ok()?;
     let line = buf[..n].split(|b| *b == b'\n').next()?;
     serde_json::from_slice(line).ok()
 }
@@ -554,6 +573,7 @@ fn first_line(path: &Path) -> Option<Value> {
 /// An open transcript: what's loaded is the byte range `start..end`.
 struct Tail {
     target: Target,
+    file: File,
     window: Window,
     cwd: Option<String>,
     home: Option<String>,
@@ -573,13 +593,16 @@ struct Stats {
 impl Tail {
     /// Open at the end and read the latest page.
     fn open(target: Target, agent: &Agent, places: &Places) -> std::io::Result<(Self, Vec<ChatItem>)> {
-        let len = std::fs::metadata(&target.path)?.len();
+        let root = places.demo.clone().unwrap_or_else(|| places.root(target.format));
+        let mut file = secure_file::open_under(&root, &target.path)?;
+        let len = file.metadata()?.len();
         let format = match &places.demo {
-            Some(_) => sniff(&target.path).unwrap_or(target.format),
+            Some(_) => sniff(&mut file).unwrap_or(target.format),
             None => target.format,
         };
         let mut tail = Tail {
             target: Target { format, path: target.path },
+            file,
             window: Window::default(),
             cwd: agent.cwd.clone(),
             home: places.home.to_str().map(str::to_string),
@@ -597,7 +620,7 @@ impl Tail {
     /// One page of items before `start`.
     fn older(&mut self) -> std::io::Result<Vec<ChatItem>> {
         self.stats = Stats::default();
-        let mut file = File::open(&self.target.path)?;
+        let mut file = self.current_file()?;
         let mut items = Vec::new();
         let mut read = 0;
         while items.len() < PAGE && self.start > 0 && read < MAX_PAGE_BYTES {
@@ -645,20 +668,20 @@ impl Tail {
             if self.start - from >= MAX_LINE {
                 return Ok(None);
             }
-            step *= 2;
+            step = (step * 2).min(MAX_LINE - (self.start - from));
         }
     }
 
     /// Items written since the last look (new ones, and ones that changed).
     fn newer(&mut self) -> std::io::Result<Vec<ChatItem>> {
-        let len = std::fs::metadata(&self.target.path)?.len();
+        let mut file = self.current_file()?;
+        let len = file.metadata()?.len();
         if len < self.end {
             return Err(std::io::Error::other("transcript got shorter"));
         }
         if len == self.end {
             return Ok(Vec::new());
         }
-        let mut file = File::open(&self.target.path)?;
         let upto = len.min(self.end + MAX_FOLLOW_BYTES);
         let buf = read_range(&mut file, self.end, upto)?;
         let Some(last) = buf.iter().rposition(|b| *b == b'\n') else {
@@ -684,13 +707,22 @@ impl Tail {
     }
 
     fn last_newline_before(&self, len: u64) -> std::io::Result<u64> {
-        let mut file = File::open(&self.target.path)?;
+        let mut file = self.current_file()?;
         let from = len.saturating_sub(MAX_FOLLOW_BYTES);
         let buf = read_range(&mut file, from, len)?;
         Ok(match buf.iter().rposition(|b| *b == b'\n') {
             Some(i) => from + i as u64 + 1,
             None => from,
         })
+    }
+
+    fn current_file(&self) -> std::io::Result<File> {
+        let opened = self.file.metadata()?;
+        let current = std::fs::symlink_metadata(&self.target.path)?;
+        if !current.is_file() || opened.dev() != current.dev() || opened.ino() != current.ino() {
+            return Err(std::io::Error::other("transcript was replaced"));
+        }
+        self.file.try_clone()
     }
 }
 
@@ -703,8 +735,8 @@ fn read_range(file: &mut File, from: u64, to: u64) -> std::io::Result<Vec<u8>> {
 
 /// Tell a transcript's format by its first line (the demo's fake agents
 /// all write Claude's).
-fn sniff(path: &Path) -> Option<Format> {
-    let first = first_line(path)?;
+fn sniff(file: &mut File) -> Option<Format> {
+    let first = first_line(file)?;
     match first["type"].as_str()? {
         "session_meta" => Some(Format::Codex),
         "session" => Some(Format::Pi),
@@ -756,7 +788,7 @@ mod tests {
         file.write_all(b"{\"type\":\"assistant\",\"partial").unwrap(); // still being written
         file.flush().unwrap();
 
-        let places = Places { home: dir.clone(), demo: None };
+        let places = Places { home: dir.clone(), demo: Some(dir.clone()) };
         let target = Target { format: Format::Claude, path: path.clone() };
         let (mut tail, first) = Tail::open(target, &Agent::default(), &places).unwrap();
         let mut seen: Vec<String> = texts(&first);
@@ -837,7 +869,7 @@ mod tests {
             std::fs::copy(&path, out).unwrap();
         }
 
-        let places = Places { home: dir.clone(), demo: None };
+        let places = Places { home: dir.clone(), demo: Some(dir.clone()) };
         let target = Target { format: Format::Claude, path: path.clone() };
         let started = Instant::now();
         let (mut tail, first) = Tail::open(target, &Agent::default(), &places).unwrap();
@@ -890,6 +922,29 @@ mod tests {
     }
 
     #[test]
+    fn replacement_cannot_redirect_a_validated_or_open_transcript() {
+        use std::os::unix::fs::symlink;
+        let home = temp("replacement");
+        let root = home.join(".claude/projects");
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("session.jsonl");
+        let outside = home.join("outside.jsonl");
+        std::fs::write(&path, line("inside")).unwrap();
+        std::fs::write(&outside, line("outside")).unwrap();
+        let checked = inside(&root, &path).unwrap();
+        let places = Places { home: home.clone(), demo: None };
+        let target = Target { format: Format::Claude, path: checked };
+        let (mut opened, initial) = Tail::open(target.clone(), &Agent::default(), &places).unwrap();
+        assert_eq!(texts(&initial), ["inside"]);
+        std::fs::rename(&path, root.join("original.jsonl")).unwrap();
+        symlink(&outside, &path).unwrap();
+        assert!(Tail::open(target, &Agent::default(), &places).is_err());
+        assert!(opened.older().is_err());
+        assert!(opened.newer().is_err());
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
     fn codex_candidates_are_interactive_conversations_in_the_directory() {
         let root = temp("codex").join("sessions");
         let day = root.join("2026/10/23");
@@ -926,9 +981,9 @@ mod tests {
         std::fs::write(day.join("rollout-c-3.jsonl"), meta("/w/app", "cli", "") + &reply("Something else entirely about release notes and version bumps for the mobile client build")).unwrap();
         let screen = "• The replay service now streams frames from the\n  recorder, and the viewer seeks by timestamp without\n  buffering the whole episode first\n\n› ";
         let candidates = vec![day.join("rollout-c-3.jsonl"), day.join("rollout-a-1.jsonl")];
-        assert_eq!(best_match(screen, &candidates), Some(day.join("rollout-a-1.jsonl")));
+        assert_eq!(best_match(screen, &candidates, &root), Some(day.join("rollout-a-1.jsonl")));
         // A screen that matches nothing decides nothing.
-        assert_eq!(best_match("OpenAI Codex (v0.164.0) model: gpt directory: ~/w/app", &candidates), None);
+        assert_eq!(best_match("OpenAI Codex (v0.164.0) model: gpt directory: ~/w/app", &candidates, &root), None);
         // Odd escapes never split a character.
         assert_eq!(runs("C:\\é one two three four five six seven \\").count(), 2);
 

@@ -73,7 +73,9 @@ pub fn plan(req: Request, store: &Store, home: &Path) -> Result<Plan, Refusal> {
         }
         None => free_name(&req.kind, store),
     };
-    let cwd = req.cwd.filter(|c| !c.trim().is_empty()).map(|c| resolve_dir(c.trim(), home)).transpose()?;
+    let cwd = req.cwd.filter(|c| !c.trim().is_empty())
+        .ok_or(("bad_directory", "pick a directory for the agent".to_string()))?;
+    let cwd = Some(resolve_dir(cwd.trim(), home)?);
     let target = match req.workspace_id {
         Some(workspace_id) => {
             if !store.workspaces.contains_key(&workspace_id) {
@@ -252,7 +254,8 @@ mod tests {
         let store = store_with(&[]);
         let refused = plan(Request { workspace_id: Some("w1".into()), ..req("bash") }, &store, &home);
         assert_eq!(refused.unwrap_err().0, "unsupported_kind");
-        assert!(plan(Request { workspace_id: Some("w1".into()), ..req("codex") }, &store, &home).is_ok());
+        assert_eq!(plan(Request { workspace_id: Some("w1".into()), ..req("codex") }, &store, &home).unwrap_err().0, "bad_directory");
+        assert!(plan(Request { workspace_id: Some("w1".into()), cwd: Some("~".into()), ..req("codex") }, &store, &home).is_ok());
     }
 
     #[test]

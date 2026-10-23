@@ -9,6 +9,7 @@ mod chat;
 mod herdr_client;
 mod herdr_theme;
 mod render;
+mod secure_file;
 mod start;
 mod subscription;
 mod sync;
@@ -118,6 +119,7 @@ async fn serve(
     demo_transcripts: Option<PathBuf>,
 ) -> Result<()> {
     let home = std::env::var_os("HOME").map(PathBuf::from).context("HOME is not set")?;
+    anyhow::ensure!(!demo, "demo input is disabled until herdr supports guarded demo operations");
     let token = auth::load_or_create_token()?;
     if demo {
         eprintln!();
