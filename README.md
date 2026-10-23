@@ -1,19 +1,34 @@
-# collie
+<p align="center"><img src="docs/images/icon.png" width="88" alt=""></p>
 
-Watch and answer your [herdr](https://herdr.dev) coding agents from your phone.
+<h1 align="center">collie</h1>
+
+<p align="center">
+Watch and answer your <a href="https://herdr.dev">herdr</a> coding agents from your phone.<br>
 A collie works the herd so the herder doesn't have to stand in the field.
+</p>
+
+<p align="center">
+  <img src="docs/images/demo.gif" width="250" alt="An agent asks a question; the phone gets a notification, opens the agent, answers 1, and the agent goes back to work.">
+  <img src="docs/images/overview.png" width="250" alt="The overview: agents grouped by workspace, each with a herdr-style status tag.">
+  <img src="docs/images/agent.png" width="250" alt="An agent asking for permission: its latest output, and quick replies lit up.">
+</p>
 
 Your agents run in herdr on your Mac. collie puts them in your pocket:
 
 - **See every agent at a glance** — which are working, which finished, which
   are stuck waiting on you.
 - **Get notified** the moment an agent needs input or finishes, even with the
-  app closed.
+  app closed (and after a reboot).
 - **Unblock with one tap** — a notification opens the agent with its latest
   output on screen, so you read the question before answering 1/2/3/Enter/Esc.
-- **Send new prompts** and **watch the live terminal**, styled and readable.
+- **Send new prompts** and **watch the live terminal**, in your herdr theme.
 - **Private by design** — your Mac talks to your phone directly (ideally over
   your tailnet). No cloud, no account, no third server.
+
+<p align="center">
+  <img src="docs/images/notifications.png" width="250" alt="Needs-input notifications in the Android shade.">
+  <img src="docs/images/terminal.png" width="250" alt="The live terminal mirror with a key bar.">
+</p>
 
 ```
 ┌─────────── Mac ───────────┐          ┌───── Android ─────┐
@@ -89,8 +104,22 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew installDebug
 the app, hit Connect. Done — the overview fills in, and notifications arrive
 from your agents.
 
+<img src="docs/images/pair.png" width="220" alt="The pairing screen.">
+
 Opening `collie://pair?url=<url-encoded URL>&token=<token>` on the phone fills
 in the pairing screen for you (it never connects until you tap Connect).
+
+## Themes
+
+collie looks like what it is, a herdr client: a terminal, not a Material app.
+It follows herdr's theme (the bridge reads `[theme]` from herdr's
+`config.toml`, auto-switch included), or you can pick any of herdr's 18
+built-in themes in Settings. Terminal output is drawn with the theme's own 16
+colors.
+
+<p align="center">
+  <img src="docs/images/themes.png" width="760" alt="The same question in dracula, rose-pine and rose-pine-dawn.">
+</p>
 
 ## The demo, piece by piece
 
@@ -126,6 +155,8 @@ scripts/demo-session.sh down
 | `scripts/` | `try-it.sh` (emulator + app + demo), `demo-session.sh` + `demo.mjs` + `fake-agent.mjs` (the demo), `smoke.mjs` (fake phone) |
 | `docs/PROTOCOL.md` | bridge ↔ phone protocol |
 | `docs/herdr-notes.md` | verified herdr socket facts and sharp edges |
+| `docs/images/` | README screenshots and the icon |
+| `third_party/` | licenses for bundled assets (Fira Code) |
 
 ## Security model
 
@@ -156,6 +187,14 @@ screen); one bridge per herdr session; per-agent mutes and QR pairing aren't
 built yet. Opening a *finished* agent marks it seen, which also switches herdr
 on your Mac to that agent's tab. The protocol may change before 1.0
 (`PROTO_VERSION` guards it).
+
+## Credits
+
+- [Fira Code](https://github.com/tonsky/FiraCode) by Nikita Prokopov, bundled
+  under the SIL Open Font License (`third_party/fira-code/OFL.txt`).
+- Terminal palettes from
+  [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
+  (MIT) and the themes' own authors; accents from herdr.
 
 ## License
 
