@@ -7,11 +7,12 @@
 //!   (`connecting` → `connected` → `disconnected`, or `unauthorized`, which
 //!   is final: a rejected token never gets better by retrying).
 //!
-//! Commands from Kotlin are `ClientMsg` JSON, forwarded verbatim when
-//! connected (auth is handled here, not by Kotlin).
+//! Commands from the app are `ClientMsg` JSON, forwarded verbatim when
+//! connected (auth is handled here, not by the app).
 
 use std::time::Duration;
 
+use collie_core::protocol::ServerMsg;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
@@ -26,8 +27,8 @@ pub struct Config {
     pub token: String,
 }
 
-/// Where events for Kotlin go. Unbounded std channel: sends never block the
-/// async runtime, and the JNI callback thread drains it.
+/// Where events for the app go. Unbounded std channel: sends never block the
+/// async runtime, and the platform's delivery thread drains it.
 pub type EventSink = std::sync::mpsc::Sender<String>;
 
 fn emit_conn(events: &EventSink, phase: &str, detail: Option<String>, attempt: u32) {
@@ -62,10 +63,10 @@ fn op_id_of(command: &str) -> Option<String> {
 
 /// Whether the bridge's first reply is its auth rejection.
 fn is_unauthorized(text: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(text).is_ok_and(|v| {
-        v.get("type").and_then(|t| t.as_str()) == Some("error")
-            && v.get("code").and_then(|c| c.as_str()) == Some("unauthorized")
-    })
+    matches!(
+        serde_json::from_str::<ServerMsg>(text),
+        Ok(ServerMsg::Error { code, .. }) if code == "unauthorized"
+    )
 }
 
 /// Answer every command with `not_connected` until `stop()`.
@@ -75,7 +76,7 @@ async fn reject_until_stopped(commands: &mut mpsc::Receiver<String>, events: &Ev
     }
 }
 
-/// Runs until `commands` closes (= `stop()` from Kotlin).
+/// Runs until `commands` closes (= the app stopped the session).
 pub async fn run(config: Config, mut commands: mpsc::Receiver<String>, events: EventSink) {
     let mut attempt: u32 = 0;
     loop {

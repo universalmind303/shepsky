@@ -1,0 +1,19 @@
+[package]
+name = "collie-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The phone side of collie, shared by the Android (JNI) and iOS (C) shims.
+
+[dependencies]
+collie-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+# Pin the crypto provider to ring: it cross-compiles cleanly for Android and
+# iOS (aws-lc-rs, the rustls default, needs cmake/bindgen there).
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+futures-util = "0.3"
+log = "0.4"

@@ -239,15 +239,9 @@ name = "collie-android"
 version = "0.1.0"
 dependencies = [
  "android_logger",
- "collie-core",
- "futures-util",
+ "collie-client",
  "jni",
  "log",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.26.2",
 ]
 
 [[package]]
@@ -266,6 +260,20 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "collie-client"
+version = "0.1.0"
+dependencies = [
+ "collie-core",
+ "futures-util",
+ "log",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
 ]
 
 [[package]]
