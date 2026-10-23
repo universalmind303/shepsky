@@ -16,7 +16,9 @@ SOCK="$HOME/.config/herdr/sessions/$SESSION/herdr.sock"
 PORT="${SHEPSKY_DEMO_PORT:-7718}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="${TMPDIR:-/tmp}/shepsky-demo"
-mkdir -p "$RUN_DIR"
+# The fake agents' transcripts, for the chat view.
+TRANSCRIPTS="$RUN_DIR/transcripts"
+mkdir -p "$TRANSCRIPTS"
 ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
 
 # If an Android emulator with the app is running, pre-fill its pairing
@@ -46,14 +48,14 @@ case "${1:-up}" in
       [ -S "$SOCK" ] || { echo "demo herdr did not come up (see $RUN_DIR/herdr.log)"; exit 1; }
     fi
     echo "creating fake agents…"
-    HERDR_SOCKET_PATH="$SOCK" node "$REPO/scripts/demo.mjs"
+    HERDR_SOCKET_PATH="$SOCK" SHEPSKY_DEMO_TRANSCRIPTS="$TRANSCRIPTS" node "$REPO/scripts/demo.mjs"
     echo "building + starting shepsky-bridge on 127.0.0.1:${PORT}…"
     cargo build -q -p shepsky-bridge --manifest-path "$REPO/Cargo.toml"
     pkill -f "shepsky-bridge --socket $SOCK serve" 2>/dev/null || true
     # Agents started from the phone are fake ones too.
-    DEMO_AGENT="$(printf '%q %q --idle' "$(command -v node)" "$REPO/scripts/fake-agent.mjs")"
+    DEMO_AGENT="$(printf '%q %q --idle --transcripts %q' "$(command -v node)" "$REPO/scripts/fake-agent.mjs" "$TRANSCRIPTS")"
     nohup "$REPO/target/debug/shepsky-bridge" --socket "$SOCK" serve --bind "127.0.0.1:$PORT" --demo \
-      --demo-agent "$DEMO_AGENT" >"$RUN_DIR/bridge.log" 2>&1 &
+      --demo-agent "$DEMO_AGENT" --demo-transcripts "$TRANSCRIPTS" >"$RUN_DIR/bridge.log" 2>&1 &
     echo $! >"$RUN_DIR/bridge.pid"
     sleep 1
     TOKEN="$("$REPO/target/debug/shepsky-bridge" pair --port "$PORT" | awk '/token:/ {print $2}')"

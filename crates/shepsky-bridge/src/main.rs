@@ -5,6 +5,7 @@
 //! - `pair`             — print what the phone needs to connect
 
 mod auth;
+mod chat;
 mod herdr_client;
 mod herdr_theme;
 mod render;
@@ -61,6 +62,10 @@ enum Command {
         /// an agent (a fake one), instead of herdr's `agent.start`.
         #[arg(long, requires = "demo")]
         demo_agent: Option<String>,
+        /// Demo mode: the folder where the fake agents write their
+        /// transcripts (`<pane>.jsonl`), for the chat view.
+        #[arg(long, requires = "demo")]
+        demo_transcripts: Option<PathBuf>,
     },
     /// Print the connection details for pairing a phone.
     Pair {
@@ -98,12 +103,21 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Status { watch: false } => status_once(client).await,
         Command::Status { watch: true } => status_watch(client).await,
-        Command::Serve { bind, demo, demo_agent } => serve(client, bind, demo, demo_agent).await,
+        Command::Serve { bind, demo, demo_agent, demo_transcripts } => {
+            serve(client, bind, demo, demo_agent, demo_transcripts).await
+        }
         Command::Pair { port } => pair(port),
     }
 }
 
-async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool, demo_agent: Option<String>) -> Result<()> {
+async fn serve(
+    client: HerdrClient,
+    bind: SocketAddr,
+    demo: bool,
+    demo_agent: Option<String>,
+    demo_transcripts: Option<PathBuf>,
+) -> Result<()> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).context("HOME is not set")?;
     let token = auth::load_or_create_token()?;
     if demo {
         eprintln!();
@@ -136,7 +150,8 @@ async fn serve(client: HerdrClient, bind: SocketAddr, demo: bool, demo_agent: Op
             token,
             demo_input: demo,
             demo_agent,
-            home: std::env::var_os("HOME").map(PathBuf::from).context("HOME is not set")?,
+            chat_places: chat::Places { home: home.clone(), demo: demo_transcripts },
+            home,
         },
         bind,
     )

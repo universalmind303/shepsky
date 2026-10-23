@@ -27,12 +27,14 @@ use tokio::task::JoinHandle;
 
 use crate::auth::token_matches;
 use crate::herdr_client::HerdrClient;
+use crate::chat::{self, ChatWatch};
 use crate::start;
 use crate::sync::UiState;
 use crate::terminal::TerminalHub;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_WATCHED_PANES: usize = 8;
+const MAX_WATCHED_CHATS: usize = 4;
 const MAX_PROMPT_BYTES: usize = 8 * 1024;
 const MAX_KEYS: usize = 32;
 const OUTBOX_CAP: usize = 64;
@@ -52,6 +54,8 @@ pub struct ServeState {
     pub demo_agent: Option<String>,
     /// The Mac user's home; new agents may only start inside it.
     pub home: PathBuf,
+    /// Where chat transcripts may be read from.
+    pub chat_places: chat::Places,
 }
 
 pub async fn serve(state: ServeState, bind: SocketAddr) -> Result<()> {
@@ -146,6 +150,8 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
 
     // Per-connection forwarders from the terminal hub into the outbox.
     let mut watched: HashMap<String, JoinHandle<()>> = HashMap::new();
+    // Dropping a chat watch stops it.
+    let mut chats: HashMap<String, ChatWatch> = HashMap::new();
 
     let result: Result<()> = async {
         loop {
@@ -154,7 +160,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
                     let Some(msg) = inbound else { break };
                     match msg? {
                         Message::Text(text) => {
-                            handle_client_msg(&text, &state, &ui_rx, &out_tx, &mut watched).await;
+                            handle_client_msg(&text, &state, &ui_rx, &out_tx, &mut watched, &mut chats).await;
                         }
                         Message::Close(_) => break,
                         _ => {} // binary unused; ping/pong handled by tungstenite
@@ -192,6 +198,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
     }
     .await;
 
+    chats.clear();
     for (pane_id, task) in watched.drain() {
         task.abort();
         state.hub.unwatch(&pane_id);
@@ -207,6 +214,7 @@ async fn handle_client_msg(
     ui_rx: &watch::Receiver<UiState>,
     out_tx: &mpsc::Sender<ServerMsg>,
     watched: &mut HashMap<String, JoinHandle<()>>,
+    chats: &mut HashMap<String, ChatWatch>,
 ) {
     let send_err = |code: &str, message: String, op_id: Option<String>| {
         let out = out_tx.clone();
@@ -269,6 +277,32 @@ async fn handle_client_msg(
             if let Some(task) = watched.remove(&pane_id) {
                 task.abort();
                 state.hub.unwatch(&pane_id);
+            }
+        }
+
+        ClientMsg::WatchChat { pane_id } => {
+            if chats.contains_key(&pane_id) {
+                return;
+            }
+            if chats.len() >= MAX_WATCHED_CHATS {
+                send_err("too_many_watches", format!("limit is {MAX_WATCHED_CHATS} chats"), None).await;
+                return;
+            }
+            if !agent_exists(ui_rx, &pane_id) {
+                send_err("not_found", format!("no agent in pane {pane_id}"), None).await;
+                return;
+            }
+            let watch = ChatWatch::spawn(pane_id.clone(), ui_rx.clone(), out_tx.clone(), state.chat_places.clone());
+            chats.insert(pane_id, watch);
+        }
+
+        ClientMsg::UnwatchChat { pane_id } => {
+            chats.remove(&pane_id);
+        }
+
+        ClientMsg::ChatOlder { pane_id } => {
+            if let Some(watch) = chats.get(&pane_id) {
+                watch.more();
             }
         }
 

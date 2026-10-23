@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-shepsky-core = { workspace = true, features = ["ansi"] }
+shepsky-core = { workspace = true, features = ["ansi", "transcript"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

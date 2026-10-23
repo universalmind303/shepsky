@@ -94,7 +94,8 @@ try {
     // Stop whatever ran there before (a previous demo agent, a shell loop).
     await rpc("pane.send_keys", { pane_id, keys: ["ctrl+c"] }).catch(() => {});
     await sleep(300);
-    const cmd = [process.execPath, FAKE_AGENT, "--kind", kind, "--task", task, "--flavor", flavor]
+    const transcripts = process.env.SHEPSKY_DEMO_TRANSCRIPTS ? ["--transcripts", process.env.SHEPSKY_DEMO_TRANSCRIPTS] : [];
+    const cmd = [process.execPath, FAKE_AGENT, "--kind", kind, "--task", task, "--flavor", flavor, ...transcripts]
       .map(shq)
       .join(" ");
     await rpc("pane.send_text", { pane_id, text: `clear; ${cmd}\n` });

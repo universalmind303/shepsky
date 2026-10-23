@@ -197,7 +197,7 @@ fn claude_user_text(text: &str, out: &mut Out) {
     if let Some(rest) = text.strip_prefix("<command-name>") {
         let command = rest.split("</command-name>").next().unwrap_or("").trim();
         let args = between(text, "<command-args>", "</command-args>").unwrap_or("").trim();
-        out.notice(&format!("{command} {args}").trim_end().to_string());
+        out.notice(format!("{command} {args}").trim_end());
     } else if text.starts_with("[Request interrupted by user") {
         out.notice("interrupted");
     } else if let Some(command) = between(text, "<bash-input>", "</bash-input>") {

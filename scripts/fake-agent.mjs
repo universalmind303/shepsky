@@ -11,9 +11,15 @@
 //   node scripts/fake-agent.mjs --kind claude --task "Fix flaky auth tests" --flavor test
 //   node scripts/fake-agent.mjs --kind codex --idle   # wait for a prompt first
 //
+// With --transcripts <dir> it also keeps a transcript in Claude Code's
+// format at <dir>/<pane>.jsonl, which the demo bridge serves to the phone's
+// chat view.
+//
 // No network, no model, no tokens. Ctrl-C to quit.
 
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import net from "node:net";
+import { join } from "node:path";
 
 // --- args ------------------------------------------------------------------
 const args = process.argv.slice(2);
@@ -26,6 +32,7 @@ const TASK = arg("task", "Refactor the thing");
 const FLAVOR = arg("flavor", "test");
 const SOCKET = process.env.HERDR_SOCKET_PATH;
 const PANE = process.env.HERDR_PANE_ID;
+const TRANSCRIPTS = arg("transcripts", null);
 
 // --- terminal helpers --------------------------------------------------------
 const c = {
@@ -69,6 +76,39 @@ function report(state, message) {
   });
   conn.on("data", () => conn.end());
   conn.setTimeout(3000, () => conn.destroy());
+}
+
+// --- transcript (Claude Code's JSONL shape, enough for the chat view) -------
+const TRANSCRIPT = TRANSCRIPTS && PANE ? join(TRANSCRIPTS, `${PANE.replace(":", "-")}.jsonl`) : null;
+if (TRANSCRIPT) {
+  mkdirSync(TRANSCRIPTS, { recursive: true });
+  writeFileSync(TRANSCRIPT, ""); // a fresh agent, a fresh conversation
+}
+let toolSeq = 0;
+function record(type, content, extra = {}) {
+  if (!TRANSCRIPT) return;
+  const role = type === "assistant" ? "assistant" : "user";
+  const line = { type, timestamp: new Date().toISOString(), message: { role, content }, ...extra };
+  try {
+    appendFileSync(TRANSCRIPT, JSON.stringify(line) + "\n");
+  } catch {} // demo: never crash on the transcript
+}
+const say = (text) => record("assistant", [{ type: "text", text }]);
+const think = () => record("assistant", [{ type: "thinking", thinking: "", signature: "demo" }]);
+function toolUse(name, input) {
+  const id = `toolu_demo_${++toolSeq}`;
+  record("assistant", [{ type: "tool_use", id, name, input }]);
+  return id;
+}
+const toolResult = (id, text, isError = false) =>
+  record("user", [{ type: "tool_result", tool_use_id: id, content: text, is_error: isError }]);
+const promptRecord = (text) => record("user", text);
+
+/** A permission like "run `cargo test -p auth`" as the tool call it asks for. */
+function permissionCall(action) {
+  const command = action.match(/`([^`]+)`/);
+  if (command) return toolUse("Bash", { command: command[1] });
+  return toolUse("Edit", { file_path: action.replace(/^edit /, ""), old_string: "…", new_string: "…" });
 }
 
 // --- fake work ---------------------------------------------------------------
@@ -119,6 +159,8 @@ function startWork(what) {
   setTitle(what);
   out();
   out(`${stamp()} ${c.cyan("●")} ${c.bold(what)}`);
+  think();
+  say(`On it: ${what.charAt(0).toLowerCase()}${what.slice(1)}.`);
   const steps = WORK[FLAVOR] ?? WORK.test;
   let i = 0;
   // Ask permission halfway through every task, like a real agent would.
@@ -133,6 +175,8 @@ function startWork(what) {
       return;
     }
     out(`${stamp()}   ${colorLine(steps[i])}`);
+    if (/^[✓✗]/.test(steps[i])) say(steps[i]);
+    else toolResult(toolUse("Bash", { command: steps[i] }), "ok");
     i += 1;
     workTimer = setTimeout(tick, 2500 + Math.random() * 2500);
   };
@@ -145,9 +189,11 @@ function startWork(what) {
 }
 let resumeWork = () => {};
 
+let pendingCall = null;
 function askPermission() {
   state = "blocked";
   const action = PERMISSIONS[FLAVOR] ?? PERMISSIONS.test;
+  pendingCall = permissionCall(action);
   report("blocked", `Allow ${KIND} to ${action}?`);
   // Full pane width, like real agents' permission boxes (so the phone gets
   // realistically wide frames).
@@ -170,9 +216,12 @@ function answerPermission(choice) {
   if (state !== "blocked") return;
   if (choice === "deny") {
     out(`${stamp()} ${c.red("✗ denied")} — okay, I'll skip that step`);
+    if (pendingCall) toolResult(pendingCall, "The user doesn't want to proceed with this tool use.", true);
   } else {
     out(`${stamp()} ${c.green(choice === "always" ? "✓ approved (always)" : "✓ approved")}`);
+    if (pendingCall) toolResult(pendingCall, "ok");
   }
+  pendingCall = null;
   state = "working";
   report("working");
   resumeWork();
@@ -183,6 +232,7 @@ function finish(what) {
   report("idle");
   setTitle(`${what} ✓`);
   out(`${stamp()} ${c.green("●")} ${c.bold("done")} — ${what}`);
+  say(`Done: ${what.charAt(0).toLowerCase()}${what.slice(1)}. Anything else?`);
   if (queued.length > 0) {
     const next = queued.shift();
     setTimeout(() => startWork(next), 1500);
@@ -194,6 +244,7 @@ function finish(what) {
 function onPrompt(text) {
   if (!text) return;
   out(`${stamp()} ${c.magenta("›")} ${text}`);
+  promptRecord(text);
   if (state === "idle") {
     setTimeout(() => startWork(text), 800);
   } else if (state === "blocked") {
@@ -265,5 +316,6 @@ if (args.includes("--idle")) {
   setTitle("ready");
 } else {
   // Stagger agents so their statuses don't all move in lockstep.
+  promptRecord(TASK);
   setTimeout(() => startWork(TASK), 1000 + Math.random() * 6000);
 }
