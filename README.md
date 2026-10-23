@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.png" width="88" alt=""></p>
+<p align="center"><img src="docs/images/icon.png" width="124" alt="shepsky: a pixel-art black shepsky with its tongue out"></p>
 
 <h1 align="center">shepsky</h1>
 

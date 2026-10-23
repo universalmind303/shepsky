@@ -33,7 +33,7 @@ object Notifier {
     /** The persistent foreground-service notification. */
     fun statusNotification(context: Context, text: String): Notification =
         Notification.Builder(context, CHANNEL_STATUS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_shepsky)
             .setContentTitle("shepsky")
             .setContentText(text)
             .setContentIntent(openApp(context, null))
@@ -51,7 +51,7 @@ object Notifier {
         val verb = if (needsInput) "needs input" else "finished"
         val where = note.workspace_label?.let { " · $it" } ?: ""
         val notification = Notification.Builder(context, channel)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_shepsky)
             .setContentTitle("${note.agent_label} $verb$where")
             .setContentText(note.title ?: "")
             .setContentIntent(openApp(context, note.pane_id))

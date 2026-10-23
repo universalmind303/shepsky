@@ -1,24 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A paw print: three toes and a pad. -->
+<!-- Adaptive icon foreground. Generated from the shepsky pixel-art logo; edit the grid, not this file. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group>
-        <!-- toes -->
-        <path
-            android:fillColor="#7BD88F"
-            android:pathData="M38,38 m-7,0 a7,7 0 1,1 14,0 a7,7 0 1,1 -14,0" />
-        <path
-            android:fillColor="#7BD88F"
-            android:pathData="M54,32 m-7,0 a7,7 0 1,1 14,0 a7,7 0 1,1 -14,0" />
-        <path
-            android:fillColor="#7BD88F"
-            android:pathData="M70,38 m-7,0 a7,7 0 1,1 14,0 a7,7 0 1,1 -14,0" />
-        <!-- pad -->
-        <path
-            android:fillColor="#7BD88F"
-            android:pathData="M54,52 c-10,0 -18,8 -18,16 c0,7 6,10 18,10 c12,0 18,-3 18,-10 c0,-8 -8,-16 -18,-16z" />
+    <group
+        android:translateX="26.5"
+        android:translateY="26.5"
+        android:scaleX="2.2"
+        android:scaleY="2.2">
+        <path android:fillColor="#FF0E0D14" android:pathData="M5,0h1v1h-1zM19,0h1v1h-1zM5,1h2v1h-2zM18,1h2v1h-2zM4,2h1v1h-1zM7,2h1v1h-1zM17,2h1v1h-1zM20,2h1v1h-1zM4,3h1v1h-1zM8,3h1v1h-1zM16,3h1v1h-1zM20,3h1v1h-1zM3,4h1v1h-1zM9,4h1v1h-1zM15,4h1v1h-1zM21,4h1v1h-1zM3,5h1v1h-1zM10,5h1v1h-1zM14,5h1v1h-1zM21,5h1v1h-1zM3,6h1v1h-1zM11,6h3v1h-3zM21,6h1v1h-1zM2,7h1v1h-1zM22,7h1v1h-1zM2,8h1v1h-1zM22,8h1v1h-1zM1,9h1v1h-1zM23,9h1v1h-1zM1,10h1v1h-1zM23,10h1v1h-1zM1,11h1v1h-1zM23,11h1v1h-1zM1,12h1v1h-1zM23,12h1v1h-1zM1,13h1v1h-1zM23,13h1v1h-1zM1,14h1v1h-1zM7,14h1v1h-1zM12,14h1v1h-1zM17,14h1v1h-1zM23,14h1v1h-1zM2,15h1v1h-1zM22,15h1v1h-1zM2,16h1v1h-1zM22,16h1v1h-1zM3,17h1v1h-1zM21,17h1v1h-1zM4,18h1v1h-1zM9,18h1v1h-1zM15,18h1v1h-1zM20,18h1v1h-1zM5,19h5v1h-5zM15,19h5v1h-5zM9,20h1v1h-1zM15,20h1v1h-1zM9,21h1v1h-1zM15,21h1v1h-1zM10,22h1v1h-1zM14,22h1v1h-1zM11,23h3v1h-3z"/>
+        <path android:fillColor="#FF1F1C2B" android:pathData="M5,2h1v1h-1zM19,2h1v1h-1zM5,3h1v1h-1zM19,3h1v1h-1zM4,4h2v1h-2zM8,4h1v1h-1zM16,4h1v1h-1zM19,4h2v1h-2zM4,5h2v1h-2zM9,5h1v1h-1zM15,5h1v1h-1zM19,5h2v1h-2zM4,6h2v1h-2zM9,6h2v1h-2zM14,6h2v1h-2zM19,6h2v1h-2zM3,7h3v1h-3zM8,7h4v1h-4zM13,7h4v1h-4zM19,7h3v1h-3zM3,8h9v1h-9zM13,8h9v1h-9zM2,9h10v1h-10zM13,9h10v1h-10zM2,10h6v1h-6zM10,10h5v1h-5zM17,10h6v1h-6zM2,11h6v1h-6zM10,11h5v1h-5zM17,11h6v1h-6zM2,12h7v1h-7zM16,12h7v1h-7zM2,13h6v1h-6zM17,13h6v1h-6zM2,14h5v1h-5zM18,14h5v1h-5zM3,15h5v1h-5zM17,15h5v1h-5zM3,16h6v1h-6zM16,16h6v1h-6zM4,17h5v1h-5zM16,17h5v1h-5zM5,18h4v1h-4zM16,18h4v1h-4z"/>
+        <path android:fillColor="#FF3A3550" android:pathData="M6,2h1v1h-1zM18,2h1v1h-1zM6,3h2v1h-2zM17,3h2v1h-2zM6,4h2v1h-2zM17,4h2v1h-2zM6,5h3v1h-3zM16,5h3v1h-3zM6,6h3v1h-3zM16,6h3v1h-3zM6,7h2v1h-2zM17,7h2v1h-2z"/>
+        <path android:fillColor="#FFF4F1EA" android:pathData="M12,7h1v1h-1zM12,8h1v1h-1zM12,9h1v1h-1zM8,10h1v1h-1zM15,10h1v1h-1z"/>
+        <path android:fillColor="#FF9A5B2E" android:pathData="M9,10h1v1h-1zM16,10h1v1h-1zM8,11h2v1h-2zM15,11h2v1h-2z"/>
+        <path android:fillColor="#FF55506E" android:pathData="M9,12h1v1h-1zM15,12h1v1h-1zM8,13h3v1h-3zM14,13h3v1h-3zM8,14h4v1h-4zM13,14h4v1h-4z"/>
+        <path android:fillColor="#FF8A85A6" android:pathData="M10,12h1v1h-1z"/>
+        <path android:fillColor="#FF08070C" android:pathData="M11,12h4v1h-4zM11,13h3v1h-3z"/>
+        <path android:fillColor="#FF6B1A30" android:pathData="M8,15h9v1h-9zM9,16h1v1h-1zM15,16h1v1h-1zM9,17h1v1h-1zM15,17h1v1h-1z"/>
+        <path android:fillColor="#FFEB6F92" android:pathData="M10,16h5v1h-5zM10,17h2v1h-2zM13,17h2v1h-2zM10,18h2v1h-2zM13,18h2v1h-2zM10,19h2v1h-2zM13,19h2v1h-2zM10,20h2v1h-2zM13,20h2v1h-2zM10,21h2v1h-2zM13,21h2v1h-2zM11,22h3v1h-3z"/>
+        <path android:fillColor="#FFC24D70" android:pathData="M12,17h1v1h-1zM12,18h1v1h-1zM12,19h1v1h-1zM12,20h1v1h-1zM12,21h1v1h-1z"/>
     </group>
 </vector>
