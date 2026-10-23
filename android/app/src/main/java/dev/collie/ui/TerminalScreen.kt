@@ -31,25 +31,50 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.collie.core.CollieRepo
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.style.TextOverflow
+import dev.collie.core.ConnState
+import dev.collie.core.Frame
+import dev.collie.core.OpResult
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TerminalScreen(paneId: String, onBack: () -> Unit) {
+fun TerminalScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) {
     DisposableEffect(paneId) {
         CollieRepo.watchPane(paneId)
         onDispose { CollieRepo.unwatchPane(paneId) }
     }
     val frame by CollieRepo.frameFlow(paneId).collectAsState()
-    val vScroll = rememberScrollState()
-    val hScroll = rememberScrollState()
-
-    // Stick to the bottom as new frames land.
-    LaunchedEffect(frame) { vScroll.scrollTo(vScroll.maxValue) }
-
+    val state by CollieRepo.state.collectAsState()
+    val conn by CollieRepo.conn.collectAsState()
+    val agent = state.agents.firstOrNull { it.pane_id == paneId }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val keyOps = remember { mutableSetOf<String>() }
+    LaunchedEffect(Unit) {
+        CollieRepo.opResults.collect { result ->
+            if (!keyOps.remove(result.opId) || result !is OpResult.Failed) return@collect
+            scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(result.friendly)
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(paneId, fontFamily = FontFamily.Monospace) },
+                title = {
+                    Text(
+                        listOfNotNull(agent?.label ?: "terminal", agent?.workspace_label).joinToString(" · "),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -57,38 +82,57 @@ fun TerminalScreen(paneId: String, onBack: () -> Unit) {
                 },
             )
         },
-        bottomBar = { KeyBar(paneId) },
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(TerminalBackground)
-                .verticalScroll(vScroll)
-                .horizontalScroll(hScroll)
-                .padding(10.dp),
-        ) {
-            val current = frame
-            if (current == null) {
-                Text(
-                    "waiting for frames…",
-                    color = TerminalDim,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                )
-            } else {
-                TerminalLines(current.lines)
+        bottomBar = {
+            KeyBar(enabled = conn == ConnState.Connected) { key ->
+                keyOps += CollieRepo.sendKeys(paneId, listOf(key))
             }
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            ConnBanner(onOpenSettings)
+            TerminalView(frame)
         }
     }
 }
 
 @Composable
-private fun KeyBar(paneId: String) {
+private fun TerminalView(frame: Frame?) {
+    val vScroll = rememberScrollState()
+    val hScroll = rememberScrollState()
+
+    // Stick to the bottom as new frames land.
+    LaunchedEffect(frame) { vScroll.scrollTo(vScroll.maxValue) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(TerminalBackground)
+            .verticalScroll(vScroll)
+            .horizontalScroll(hScroll)
+            .padding(10.dp),
+    ) {
+        val current = frame
+        if (current == null) {
+            Text(
+                "waiting for frames…",
+                color = TerminalDim,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+            )
+        } else {
+            TerminalLines(current.lines)
+        }
+    }
+}
+
+@Composable
+private fun KeyBar(enabled: Boolean, onKey: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .navigationBarsPadding()
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -103,7 +147,8 @@ private fun KeyBar(paneId: String) {
             "⏎" to "enter",
         ).forEach { (label, key) ->
             OutlinedButton(
-                onClick = { CollieRepo.sendKeys(paneId, listOf(key)) },
+                onClick = { onKey(key) },
+                enabled = enabled,
                 modifier = Modifier.padding(horizontal = 4.dp),
             ) {
                 Text(label)

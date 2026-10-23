@@ -70,6 +70,7 @@ fun App() {
         )
         is Screen.Terminal -> TerminalScreen(
             paneId = screen.paneId,
+            onOpenSettings = { showPair = true },
             onBack = { stack = stack.dropLast(1) },
         )
     }
