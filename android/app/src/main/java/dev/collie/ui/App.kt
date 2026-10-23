@@ -1,0 +1,75 @@
+package dev.collie.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import dev.collie.MainActivity
+import dev.collie.core.CollieRepo
+import dev.collie.data.Prefs
+import dev.collie.service.CollieService
+
+sealed interface Screen {
+    data object Overview : Screen
+    data class Agent(val paneId: String) : Screen
+    data class Terminal(val paneId: String) : Screen
+}
+
+@Composable
+fun App() {
+    val context = LocalContext.current
+    var showPair by remember { mutableStateOf(!Prefs.isPaired(context)) }
+    var stack by remember { mutableStateOf<List<Screen>>(listOf(Screen.Overview)) }
+
+    // Reconnect the service on app open (e.g. after a reboot).
+    LaunchedEffect(Unit) {
+        if (Prefs.isPaired(context) && !CollieRepo.running) {
+            CollieService.start(context)
+        }
+    }
+
+    // Notification taps jump straight to the agent.
+    val pendingPane by MainActivity.pendingPane.collectAsState()
+    LaunchedEffect(pendingPane) {
+        pendingPane?.let { paneId ->
+            MainActivity.pendingPane.value = null
+            if (Prefs.isPaired(context)) {
+                stack = listOf(Screen.Overview, Screen.Agent(paneId))
+                showPair = false
+            }
+        }
+    }
+
+    if (showPair) {
+        BackHandler(enabled = Prefs.isPaired(context)) { showPair = false }
+        PairScreen(
+            canDismiss = Prefs.isPaired(context),
+            onDismiss = { showPair = false },
+            onPaired = { showPair = false },
+        )
+        return
+    }
+
+    BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
+
+    when (val screen = stack.last()) {
+        is Screen.Overview -> OverviewScreen(
+            onOpenAgent = { stack = stack + Screen.Agent(it) },
+            onOpenSettings = { showPair = true },
+        )
+        is Screen.Agent -> AgentScreen(
+            paneId = screen.paneId,
+            onOpenTerminal = { stack = stack + Screen.Terminal(screen.paneId) },
+            onBack = { stack = stack.dropLast(1) },
+        )
+        is Screen.Terminal -> TerminalScreen(
+            paneId = screen.paneId,
+            onBack = { stack = stack.dropLast(1) },
+        )
+    }
+}
