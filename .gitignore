@@ -1,0 +1,7 @@
+target/
+*.log
+.DS_Store
+android/.gradle/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
