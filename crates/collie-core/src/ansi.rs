@@ -8,7 +8,7 @@
 //! Only built with the `ansi` feature (the bridge); the Android cdylib skips
 //! it.
 
-use crate::protocol::{Frame, Span};
+use crate::protocol::{Color, Frame, Span};
 
 const MAX_ROWS: u16 = 300;
 const COLS: u16 = 400; // generous ceiling; herdr pre-wraps to the pane width
@@ -41,7 +41,7 @@ pub fn parse_frame(ansi_text: &str) -> Frame {
                 text = " ".to_string();
             }
             let styled = style_of(cell);
-            let is_blank = text.trim().is_empty() && styled.bg.is_none();
+            let is_blank = text.trim().is_empty() && styled.bg.is_none() && !styled.r;
             if !is_blank {
                 width = col + if cell.is_wide() { 2 } else { 1 };
             }
@@ -87,50 +87,36 @@ pub fn parse_frame(ansi_text: &str) -> Frame {
 }
 
 fn style_of(cell: &vt100::Cell) -> Span {
-    let inverse = cell.inverse();
-    let mut fg = color_hex(cell.fgcolor());
-    let mut bg = color_hex(cell.bgcolor());
-    if inverse {
-        std::mem::swap(&mut fg, &mut bg);
-        // Inverse of the default colors: pick explicit values so the effect
-        // survives on any client theme.
-        if bg.is_none() {
-            bg = Some("#e6e6e6".to_string());
-        }
-        if fg.is_none() {
-            fg = Some("#1a1a1a".to_string());
-        }
-    }
     Span {
         t: String::new(),
-        fg,
-        bg,
+        fg: color_of(cell.fgcolor()),
+        bg: color_of(cell.bgcolor()),
         b: cell.bold(),
         i: cell.italic(),
         u: cell.underline(),
+        r: cell.inverse(),
     }
 }
 
 fn same_style(a: &Span, b: &Span) -> bool {
-    a.fg == b.fg && a.bg == b.bg && a.b == b.b && a.i == b.i && a.u == b.u
+    a.fg == b.fg && a.bg == b.bg && a.b == b.b && a.i == b.i && a.u == b.u && a.r == b.r
 }
 
-fn color_hex(color: vt100::Color) -> Option<String> {
+/// The 16 ANSI colors stay indexes (the phone's theme draws them); the
+/// 256-color extensions and truecolor are exact.
+fn color_of(color: vt100::Color) -> Option<Color> {
     match color {
         vt100::Color::Default => None,
-        vt100::Color::Rgb(r, g, b) => Some(format!("#{r:02x}{g:02x}{b:02x}")),
-        vt100::Color::Idx(i) => Some(idx_to_hex(i)),
+        vt100::Color::Idx(i @ 0..=15) => Some(Color::Ansi(i)),
+        vt100::Color::Idx(i) => Some(Color::Rgb(xterm_256_hex(i))),
+        vt100::Color::Rgb(r, g, b) => Some(Color::Rgb(format!("#{r:02x}{g:02x}{b:02x}"))),
     }
 }
 
-/// Standard xterm-256 palette.
-fn idx_to_hex(i: u8) -> String {
-    const BASE: [&str; 16] = [
-        "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
-        "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
-    ];
+/// The xterm-256 cube and grayscale ramp (indexes 16–255).
+fn xterm_256_hex(i: u8) -> String {
     match i {
-        0..=15 => BASE[i as usize].to_string(),
+        0..=15 => unreachable!("ANSI 0-15 are theme colors"),
         16..=231 => {
             let i = i - 16;
             let steps = [0u8, 95, 135, 175, 215, 255];
@@ -166,7 +152,7 @@ mod tests {
         let line = &frame.lines[0];
         assert_eq!(line.len(), 2);
         assert_eq!(line[0].t, "err");
-        assert_eq!(line[0].fg.as_deref(), Some("#cd3131"));
+        assert_eq!(line[0].fg, Some(Color::Ansi(1)));
         assert_eq!(line[1].t, " ok");
         assert!(line[1].b);
     }
@@ -179,7 +165,7 @@ mod tests {
         // Second line keeps the blue-background run, drops the unstyled tail.
         let line1: String = frame.lines[1].iter().map(|s| s.t.as_str()).collect();
         assert_eq!(line1, "x   ");
-        assert_eq!(frame.lines[1].last().unwrap().bg.as_deref(), Some("#2472c8"));
+        assert_eq!(frame.lines[1].last().unwrap().bg, Some(Color::Ansi(4)));
     }
 
     #[test]
@@ -200,7 +186,25 @@ mod tests {
     fn rgb_and_256_colors() {
         let frame = parse_frame("\x1b[38;2;10;20;30mrgb\x1b[0m\x1b[38;5;196midx\x1b[0m");
         let line = &frame.lines[0];
-        assert_eq!(line[0].fg.as_deref(), Some("#0a141e"));
-        assert_eq!(line[1].fg.as_deref(), Some("#ff0000"));
+        assert_eq!(line[0].fg, Some(Color::Rgb("#0a141e".into())));
+        assert_eq!(line[1].fg, Some(Color::Rgb("#ff0000".into())));
+    }
+
+    #[test]
+    fn bright_ansi_stays_an_index() {
+        let frame = parse_frame("\x1b[91mhot\x1b[0m");
+        assert_eq!(frame.lines[0][0].fg, Some(Color::Ansi(9)));
+    }
+
+    #[test]
+    fn inverse_is_a_flag_not_a_swap() {
+        // Reverse video over default colors: the phone swaps its theme's
+        // fg/bg, and a reversed blank still counts (it's visible).
+        let frame = parse_frame("a\x1b[7m  \x1b[0m");
+        let line = &frame.lines[0];
+        assert_eq!(line.len(), 2);
+        assert_eq!(line[1].t, "  ");
+        assert!(line[1].r);
+        assert_eq!(line[1].fg, None);
     }
 }

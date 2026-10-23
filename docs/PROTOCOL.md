@@ -1,4 +1,4 @@
-# bridge ↔ phone protocol (proto 1)
+# bridge ↔ phone protocol (proto 2)
 
 One WebSocket (`/ws` on the bridge), JSON text messages, tagged by `"type"`.
 Both sides ignore unknown fields. The canonical types live in
@@ -55,9 +55,15 @@ protocol break: bump `PROTO_VERSION` in both places.
 kind?, title?, workspace_id, workspace_label?, cwd?, focused}`. `cwd` shows
 the Mac's home directory as `~`.
 
-Terminal spans: `{t, fg?, bg?, b?, i?, u?}` — colors are `#rrggbb`, absent
-means the client's default fg/bg; flags absent = false. Lines are pre-trimmed
+Terminal spans: `{t, fg?, bg?, b?, i?, u?, r?}`. A color is either a
+**number** 0–15 (an ANSI color, drawn in the phone's theme) or a `#rrggbb`
+**string** (the 256-color cube, grayscale ramp and truecolor are exact);
+absent means the theme's default fg/bg. `r` is reverse video: the phone swaps
+fg and bg after resolving them. Flags absent = false. Lines are pre-trimmed
 of unstyled trailing blanks.
+
+Proto 2 (theme-aware colors and `r`) replaced proto 1's fixed xterm hex for
+ANSI 0–15 and pre-swapped reverse video.
 
 ## Error codes
 

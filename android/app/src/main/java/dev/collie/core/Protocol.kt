@@ -1,13 +1,14 @@
 package dev.collie.core
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Kotlin mirrors of the bridge protocol (docs/PROTOCOL.md). Property names
  * match the wire exactly; parsing ignores unknown fields. The Rust source of
  * truth is crates/collie-core/src/protocol.rs — keep PROTO_VERSION in sync.
  */
-const val PROTO_VERSION = 1
+const val PROTO_VERSION = 2
 
 /** herdr's theme from `hello` (`dark`/`light` set when herdr auto-switches). */
 @Serializable
@@ -67,12 +68,18 @@ data class Frame(
     val lines: List<List<Span>> = emptyList(),
 )
 
+/**
+ * A run of styled terminal text. [fg]/[bg] are a number (ANSI 0–15, drawn
+ * in the phone's theme) or a `#rrggbb` string; absent = the theme default.
+ * [r] = reverse video.
+ */
 @Serializable
 data class Span(
     val t: String,
-    val fg: String? = null,
-    val bg: String? = null,
+    val fg: JsonPrimitive? = null,
+    val bg: JsonPrimitive? = null,
     val b: Boolean = false,
     val i: Boolean = false,
     val u: Boolean = false,
+    val r: Boolean = false,
 )

@@ -15,6 +15,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import dev.collie.core.Span
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /** Styled terminal rows, unwrapped (callers decide how to scroll or clip). */
 @Composable
@@ -23,28 +25,37 @@ fun TerminalLines(
     modifier: Modifier = Modifier,
     fontSize: TextUnit = 10.sp,
 ) {
+    val theme = LocalTerm.current
     Column(modifier) {
         lines.forEach { line ->
             Text(
-                text = line.toAnnotated(),
+                text = line.toAnnotated(theme),
                 fontFamily = Mono,
                 fontSize = fontSize,
                 lineHeight = fontSize * 1.25f,
                 softWrap = false,
-                color = LocalTerm.current.fg,
+                color = theme.fg,
             )
         }
     }
 }
 
-fun List<Span>.isBlankLine(): Boolean = all { it.t.isBlank() && it.bg == null }
+fun List<Span>.isBlankLine(): Boolean = all { it.t.isBlank() && it.bg == null && !it.r }
 
-private fun List<Span>.toAnnotated(): AnnotatedString = buildAnnotatedString {
+private fun List<Span>.toAnnotated(theme: TermTheme): AnnotatedString = buildAnnotatedString {
     for (span in this@toAnnotated) {
+        var fg = span.fg.toColor(theme)
+        var bg = span.bg.toColor(theme)
+        if (span.r) {
+            // Reverse video swaps the resolved colors, defaults included.
+            val swappedFg = bg ?: theme.bg
+            bg = fg ?: theme.fg
+            fg = swappedFg
+        }
         withStyle(
             SpanStyle(
-                color = span.fg.toComposeColor() ?: Color.Unspecified,
-                background = span.bg.toComposeColor() ?: Color.Unspecified,
+                color = fg ?: Color.Unspecified,
+                background = bg ?: Color.Unspecified,
                 fontWeight = if (span.b) FontWeight.Bold else null,
                 fontStyle = if (span.i) FontStyle.Italic else null,
                 textDecoration = if (span.u) TextDecoration.Underline else null,
@@ -56,6 +67,9 @@ private fun List<Span>.toAnnotated(): AnnotatedString = buildAnnotatedString {
     if (this@toAnnotated.isEmpty()) append(" ")
 }
 
-private fun String?.toComposeColor(): Color? = this?.let {
-    runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
+/** ANSI 0–15 from the theme; `#rrggbb` as is; null = the theme default. */
+private fun JsonPrimitive?.toColor(theme: TermTheme): Color? = when {
+    this == null -> null
+    isString -> runCatching { Color(android.graphics.Color.parseColor(content)) }.getOrNull()
+    else -> intOrNull?.let { theme.ansi.getOrNull(it) }
 }

@@ -15,7 +15,7 @@ use crate::herdr::AgentStatus;
 use crate::notify::{Kind, Notification};
 use crate::store::Store;
 
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // phone -> bridge
@@ -252,18 +252,31 @@ pub struct Frame {
 pub struct Span {
     /// Text.
     pub t: String,
-    /// Foreground color as `#rrggbb` (None = terminal default).
+    /// Foreground (None = the theme's default foreground).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fg: Option<String>,
-    /// Background color as `#rrggbb` (None = terminal default).
+    pub fg: Option<Color>,
+    /// Background (None = the theme's default background).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bg: Option<String>,
+    pub bg: Option<Color>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub b: bool, // bold
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub i: bool, // italic
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub u: bool, // underline
+    /// Reverse video: the phone swaps fg and bg after resolving them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub r: bool,
+}
+
+/// A terminal color: one of the 16 theme colors, or an exact RGB.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Color {
+    /// ANSI 0–15, drawn in the phone's theme (JSON: a number).
+    Ansi(u8),
+    /// `#rrggbb`: 256-color cube, grayscale ramp and truecolor.
+    Rgb(String),
 }
 
 #[cfg(test)]
@@ -352,6 +365,19 @@ mod tests {
         let json = serde_json::to_string(&note).unwrap();
         assert!(json.contains(r#""type":"notify""#));
         assert!(json.contains(r#""kind":"needs_input""#));
+
+        // Theme colors are numbers, exact colors strings.
+        let span = Span {
+            t: "x".into(),
+            fg: Some(Color::Ansi(1)),
+            bg: Some(Color::Rgb("#0a141e".into())),
+            r: true,
+            ..Span::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&span).unwrap(),
+            r##"{"t":"x","fg":1,"bg":"#0a141e","r":true}"##
+        );
 
         // Unknown fields must not break parsing (forward compat).
         let msg: ServerMsg =
