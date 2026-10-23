@@ -4,7 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The Mac is a device we stay connected to over the network; the
+         connectedDevice type requires one of these network permissions. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- Cleartext ws:// is allowed on purpose: the expected transports are the
          Android emulator (10.0.2.2) and a Tailscale tailnet, where the bearer
@@ -39,6 +42,6 @@
         <service
             android:name=".service.CollieService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

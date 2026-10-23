@@ -27,13 +27,26 @@ class CollieService : Service() {
         super.onCreate()
         Notifier.createChannels(this)
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // Once per service instance (onStartCommand can run many times).
+        scope.launch {
+            CollieRepo.notes.collect { Notifier.postAgentNote(this@CollieService, it) }
+        }
+        scope.launch {
+            CollieRepo.conn.collect { conn ->
+                val text = UserText.connection(conn, Prefs.url(this@CollieService)) ?: "Connected to your Mac"
+                getSystemService(android.app.NotificationManager::class.java)
+                    .notify(Notifier.STATUS_ID, Notifier.statusNotification(this@CollieService, text))
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // connectedDevice, not dataSync: on Android 15 dataSync services get
+        // 6 hours per day, and this one runs for as long as you're paired.
         startForeground(
             Notifier.STATUS_ID,
             Notifier.statusNotification(this, "Connecting…"),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
 
         val url = Prefs.url(this)
@@ -44,17 +57,6 @@ class CollieService : Service() {
         }
         if (!CollieRepo.running) {
             CollieRepo.start(url, token)
-        }
-
-        scope.launch {
-            CollieRepo.notes.collect { Notifier.postAgentNote(this@CollieService, it) }
-        }
-        scope.launch {
-            CollieRepo.conn.collect { conn ->
-                val text = UserText.connection(conn, url) ?: "Connected to your Mac"
-                getSystemService(android.app.NotificationManager::class.java)
-                    .notify(Notifier.STATUS_ID, Notifier.statusNotification(this@CollieService, text))
-            }
         }
         return START_STICKY
     }
