@@ -95,7 +95,8 @@ try {
     await rpc("pane.send_keys", { pane_id, keys: ["ctrl+c"] }).catch(() => {});
     await sleep(300);
     const transcripts = process.env.SHEPSKY_DEMO_TRANSCRIPTS ? ["--transcripts", process.env.SHEPSKY_DEMO_TRANSCRIPTS] : [];
-    const cmd = [process.execPath, FAKE_AGENT, "--kind", kind, "--task", task, "--flavor", flavor, ...transcripts]
+    // An earlier log to scroll back through in the terminal tab.
+    const cmd = [process.execPath, FAKE_AGENT, "--kind", kind, "--task", task, "--flavor", flavor, "--history", "150", ...transcripts]
       .map(shq)
       .join(" ");
     await rpc("pane.send_text", { pane_id, text: `clear; ${cmd}\n` });

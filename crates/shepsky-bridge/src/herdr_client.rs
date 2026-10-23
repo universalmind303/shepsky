@@ -49,6 +49,9 @@ const ALLOWED_METHODS: &[&str] = &[
     "agent.rename",
     "pane.rename",
     "pane.close",
+    // scrolling an agent pane's history (guardrail in ws.rs: agent panes
+    // only; the bridge scrolls back to the bottom what a phone left behind)
+    "pane.scroll",
 ];
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);

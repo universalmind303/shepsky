@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use shepsky_core::protocol::ServerMsg;
+use shepsky_core::protocol::{PaneScroll, ServerMsg};
 use serde_json::json;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -125,8 +125,16 @@ async fn poll_pane(
                 else {
                     continue;
                 };
+                // Where herdr's view is scrolled (a phone may have scrolled
+                // it back); a frame goes out when either changes.
+                let scroll = client
+                    .call("pane.get", json!({ "pane_id": pane_id }))
+                    .await
+                    .ok()
+                    .and_then(|r| serde_json::from_value::<PaneScroll>(r["pane"]["scroll"].clone()).ok());
                 let mut hasher = DefaultHasher::new();
                 text.hash(&mut hasher);
+                scroll.hash(&mut hasher);
                 let hash = hasher.finish();
                 if hash == last_hash {
                     continue;
@@ -137,6 +145,7 @@ async fn poll_pane(
                     pane_id: pane_id.clone(),
                     seq,
                     frame: shepsky_core::ansi::parse_frame(text),
+                    scroll,
                 };
                 *latest.lock().unwrap() = Some(msg.clone());
                 // Lagging receivers just miss intermediate frames; the next

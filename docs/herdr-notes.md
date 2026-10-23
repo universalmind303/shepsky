@@ -83,6 +83,17 @@ error lists every supported method).
   Avoid `agent.read`. The terminal mirror uses
   `{source:"visible", format:"ansi", strip_ansi:false}` + frame hashing.
 
+## Scrolling a pane (shared with the Mac)
+- `pane.scroll {pane_id, offset_from_bottom}` sets herdr's view of the pane
+  to an absolute offset, clamped to its history (0 = live). `pane.get` reports
+  `scroll: {offset_from_bottom, max_offset_from_bottom, viewport_rows}`.
+- A `visible` read shows the scrolled view; reads never move it (checked with
+  an `ansi` visible read while scrolled).
+- The scroll is the pane's, not a viewer's: herdr on the Mac scrolls with it.
+  New output while scrolled back raises the offset, so the view stays on the
+  same lines.
+- A screen that fits (no history yet) has `max_offset_from_bottom: 0`.
+
 ## Write methods the bridge allows
 `agent.prompt` (can submit and wait: optional `wait{until,timeout_ms}`),
 `agent.send_keys`, `agent.focus` (clears `done`), `pane.send_keys`,

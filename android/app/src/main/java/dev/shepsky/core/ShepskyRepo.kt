@@ -254,6 +254,39 @@ object ShepskyRepo {
         }
     }
 
+    /**
+     * Panes this app scrolled back. herdr's scroll is shared with the Mac,
+     * so [scrollPaneToBottom] brings them back when you stop looking (and
+     * the bridge does too if the phone disappears).
+     */
+    private val scrolledBack = HashSet<String>()
+
+    /** Scroll herdr's view of a pane [lines] up (+) or down (-). */
+    fun scrollPane(paneId: String, lines: Int): String {
+        synchronized(scrolledBack) { scrolledBack += paneId }
+        return sendOp { opId ->
+            buildJsonObject {
+                put("type", "scroll_pane")
+                put("pane_id", paneId)
+                put("lines", lines)
+                put("op_id", opId)
+            }
+        }
+    }
+
+    /** Back to the bottom, if this app scrolled the pane (or [force]: you asked). */
+    fun scrollPaneToBottom(paneId: String, force: Boolean = false) {
+        val ours = synchronized(scrolledBack) { scrolledBack.remove(paneId) }
+        if (ours || force) sendOp { opId ->
+            buildJsonObject {
+                put("type", "scroll_pane")
+                put("pane_id", paneId)
+                put("to_bottom", true)
+                put("op_id", opId)
+            }
+        }
+    }
+
     /** Rename an agent: its herdr name and its pane's label. */
     fun renameAgent(paneId: String, name: String): String = sendOp { opId ->
         buildJsonObject {
@@ -371,7 +404,8 @@ object ShepskyRepo {
                 "terminal_frame" -> {
                     val paneId = obj["pane_id"]?.jsonPrimitive?.content ?: return
                     val frame = obj["frame"] ?: return
-                    mutableFrame(paneId).value = json.decodeFromJsonElement<Frame>(frame)
+                    val scroll = obj["scroll"]?.let { json.decodeFromJsonElement<PaneScroll>(it) }
+                    mutableFrame(paneId).value = json.decodeFromJsonElement<Frame>(frame).copy(scroll = scroll)
                 }
                 "chat" -> {
                     val paneId = obj["pane_id"]?.jsonPrimitive?.content ?: return

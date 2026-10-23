@@ -37,6 +37,7 @@ const MAX_WATCHED_PANES: usize = 8;
 const MAX_WATCHED_CHATS: usize = 4;
 const MAX_PROMPT_BYTES: usize = 8 * 1024;
 const MAX_KEYS: usize = 32;
+const MAX_SCROLL_LINES: u64 = 1000;
 const OUTBOX_CAP: usize = 64;
 
 pub struct ServeState {
@@ -152,6 +153,9 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
     let mut watched: HashMap<String, JoinHandle<()>> = HashMap::new();
     // Dropping a chat watch stops it.
     let mut chats: HashMap<String, ChatWatch> = HashMap::new();
+    // Panes this phone scrolled back: herdr's scroll is shared with the Mac,
+    // so they go back to the bottom when the phone stops looking.
+    let scrolled: Scrolled = Arc::default();
 
     let result: Result<()> = async {
         loop {
@@ -160,7 +164,7 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
                     let Some(msg) = inbound else { break };
                     match msg? {
                         Message::Text(text) => {
-                            handle_client_msg(&text, &state, &ui_rx, &out_tx, &mut watched, &mut chats).await;
+                            handle_client_msg(&text, &state, &ui_rx, &out_tx, &mut watched, &mut chats, &scrolled).await;
                         }
                         Message::Close(_) => break,
                         _ => {} // binary unused; ping/pong handled by tungstenite
@@ -199,6 +203,10 @@ async fn handle_conn(socket: WebSocket, state: Arc<ServeState>) -> Result<()> {
     .await;
 
     chats.clear();
+    let left: Vec<String> = scrolled.panes.lock().unwrap().drain().collect();
+    for pane_id in left {
+        snap_back(&state.client, pane_id);
+    }
     for (pane_id, task) in watched.drain() {
         task.abort();
         state.hub.unwatch(&pane_id);
@@ -215,6 +223,7 @@ async fn handle_client_msg(
     out_tx: &mpsc::Sender<ServerMsg>,
     watched: &mut HashMap<String, JoinHandle<()>>,
     chats: &mut HashMap<String, ChatWatch>,
+    scrolled: &Scrolled,
 ) {
     let send_err = |code: &str, message: String, op_id: Option<String>| {
         let out = out_tx.clone();
@@ -278,6 +287,41 @@ async fn handle_client_msg(
                 task.abort();
                 state.hub.unwatch(&pane_id);
             }
+            if scrolled.panes.lock().unwrap().remove(&pane_id) {
+                snap_back(&state.client, pane_id);
+            }
+        }
+
+        ClientMsg::ScrollPane { pane_id, lines, to_bottom, op_id } => {
+            if !agent_exists(ui_rx, &pane_id) {
+                send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
+                return;
+            }
+            if lines.unsigned_abs() > MAX_SCROLL_LINES {
+                send_err("bad_scroll", format!("at most {MAX_SCROLL_LINES} lines at a time"), op_id).await;
+                return;
+            }
+            let client = state.client.clone();
+            let out = out_tx.clone();
+            let scrolled = scrolled.clone();
+            tokio::spawn(async move {
+                let step = scrolled.steps.lock().await;
+                let result = scroll_pane(&client, &pane_id, lines, to_bottom).await;
+                drop(step);
+                let reply = match result {
+                    Ok(offset) => {
+                        let mut set = scrolled.panes.lock().unwrap();
+                        if offset > 0 {
+                            set.insert(pane_id);
+                        } else {
+                            set.remove(&pane_id);
+                        }
+                        ServerMsg::Ack { op_id, pane_id: None }
+                    }
+                    Err(err) => error_reply(&err, op_id),
+                };
+                out.send(reply).await.ok();
+            });
         }
 
         ClientMsg::WatchChat { pane_id } => {
@@ -427,6 +471,43 @@ async fn handle_client_msg(
             });
         }
     }
+}
+
+/// Panes a connection scrolled back, and a lock that makes its scroll
+/// steps happen one at a time (each step is relative to where the last one
+/// left the pane).
+#[derive(Default)]
+struct ScrollState {
+    panes: std::sync::Mutex<std::collections::HashSet<String>>,
+    steps: tokio::sync::Mutex<()>,
+}
+
+type Scrolled = Arc<ScrollState>;
+
+/// Move herdr's view of a pane `lines` up (+) or down (-) from where it is,
+/// within its history, or to the bottom; returns the new offset.
+async fn scroll_pane(client: &HerdrClient, pane_id: &str, lines: i64, to_bottom: bool) -> Result<u64> {
+    let offset = if to_bottom {
+        0
+    } else {
+        let pane = client.call("pane.get", json!({ "pane_id": pane_id })).await?;
+        let scroll = &pane["pane"]["scroll"];
+        let now = scroll["offset_from_bottom"].as_u64().unwrap_or(0) as i64;
+        let max = scroll["max_offset_from_bottom"].as_u64().unwrap_or(0) as i64;
+        (now + lines).clamp(0, max) as u64
+    };
+    client.call("pane.scroll", json!({ "pane_id": pane_id, "offset_from_bottom": offset })).await?;
+    Ok(offset)
+}
+
+/// Back to the bottom, in the background: the phone stopped looking.
+fn snap_back(client: &HerdrClient, pane_id: String) {
+    let client = client.clone();
+    tokio::spawn(async move {
+        if let Err(err) = scroll_pane(&client, &pane_id, 0, true).await {
+            tracing::debug!(%err, pane_id, "couldn't scroll a pane back to the bottom");
+        }
+    });
 }
 
 fn agent_exists(ui_rx: &watch::Receiver<UiState>, pane_id: &str) -> bool {

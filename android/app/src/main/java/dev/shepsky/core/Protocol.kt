@@ -98,6 +98,15 @@ data class Frame(
     val cols: Int = 0,
     val rows: Int = 0,
     val lines: List<List<Span>> = emptyList(),
+    /** Where herdr's view is scrolled (sent next to the frame, not in it). */
+    val scroll: PaneScroll? = null,
+)
+
+/** How far herdr's view of a pane is scrolled back, in lines. */
+@Serializable
+data class PaneScroll(
+    val offset_from_bottom: Long = 0,
+    val max_offset_from_bottom: Long = 0,
 )
 
 /**

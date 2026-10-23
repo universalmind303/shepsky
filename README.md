@@ -185,7 +185,8 @@ scripts/demo-session.sh down
   `agent.focus`, `pane.send_keys` and `pane.send_text`, and for starting
   agents `workspace.create`, `tab.create`, `agent.start` (plus
   `workspace.close`/`tab.close`, only to undo a start that failed), and
-  `agent.rename`, `pane.rename` and `pane.close` to rename and close agents.
+  `agent.rename`, `pane.rename` and `pane.close` to rename and close agents,
+  and `pane.scroll` for the terminal's scrollback (agent panes only).
 - **shepsky can't type into a shell.** Prompts go through herdr's
   `agent.prompt` and keys through `agent.send_keys`. herdr only delivers them
   when the pane's foreground process really is that agent, and refuses a
@@ -218,7 +219,9 @@ scripts/demo-session.sh down
 ## Status
 
 0.1. Known gaps: the terminal tab mirrors the screen but isn't a full
-terminal (no scrollback there; the chat tab has the history). The chat view
+terminal. Pulling past its top scrolls herdr's pane back through its history,
+and that scroll is herdr's own, so the Mac's view scrolls too (the app puts
+it back when you leave). The chat view
 covers Claude Code, Codex and pi; other agents get the terminal. Codex
 doesn't tell herdr which conversation a pane is in, so the bridge works it
 out from the directory, the thread name and what's on screen; a codex that

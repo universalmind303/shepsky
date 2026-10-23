@@ -10,6 +10,7 @@
 //
 //   node scripts/fake-agent.mjs --kind claude --task "Fix flaky auth tests" --flavor test
 //   node scripts/fake-agent.mjs --kind codex --idle   # wait for a prompt first
+//   node scripts/fake-agent.mjs --history 200         # start with an earlier log
 //
 // With --transcripts <dir> it also keeps a transcript in Claude Code's
 // format at <dir>/<pane>.jsonl, which the demo bridge serves to the phone's
@@ -30,6 +31,8 @@ const arg = (name, fallback) => {
 const KIND = arg("kind", "claude");
 const TASK = arg("task", "Refactor the thing");
 const FLAVOR = arg("flavor", "test");
+// Lines of an earlier session's log to start with, so there's scrollback.
+const HISTORY = Number(arg("history", "0"));
 const SOCKET = process.env.HERDR_SOCKET_PATH;
 const PANE = process.env.HERDR_PANE_ID;
 const TRANSCRIPTS = arg("transcripts", null);
@@ -310,6 +313,17 @@ process.on("SIGTERM", quit);
 // --- go ----------------------------------------------------------------------
 process.stdout.write("\x1b[2J\x1b[H");
 out(c.bold(`${KIND} (fake)`) + c.dim(" — shepsky demo agent · ctrl-c to quit"));
+// An earlier session's log, numbered so scrolling back is easy to follow.
+if (HISTORY > 0) {
+  const steps = Object.values(WORK).flat();
+  const start = Date.now() - HISTORY * 20_000;
+  for (let i = 0; i < HISTORY; i++) {
+    const time = new Date(start + i * 20_000).toTimeString().slice(0, 8);
+    const step = steps[i % steps.length];
+    out(`${c.dim(time)}   ${c.dim(`#${String(i + 1).padStart(3, "0")}`)} ${colorLine(step)}`);
+  }
+  out(c.dim(`  (${HISTORY} lines of earlier work above)`));
+}
 if (args.includes("--idle")) {
   // Freshly started, like an agent the phone just launched.
   report("idle");

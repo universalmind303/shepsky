@@ -34,6 +34,7 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `prompt` | `pane_id`, `text`, `op_id?` | submit a prompt to the agent (≤ 8 KiB) |
 | `send_keys` | `pane_id`, `keys[]`, `op_id?` | e.g. `["1"]`, `["enter"]`, `["esc"]` (≤ 32 keys) |
 | `focus_agent` | `pane_id`, `op_id?` | marks looked-at; clears `done` |
+| `scroll_pane` | `pane_id`, `lines` (+ up / - down) or `to_bottom`, `op_id?` | scroll herdr's view of an agent pane (≤ 1000 lines a step) |
 | `rename_agent` | `pane_id`, `name`, `op_id?` | herdr agent name and the pane's label |
 | `close_agent` | `pane_id`, `op_id?` | close the agent's pane, ending it (agent panes only) |
 | `start_agent` | `kind`, `workspace_id?`, `cwd?`, `name?`, `label?`, `op_id?` | start an agent; `ack` carries its `pane_id` |
@@ -46,7 +47,7 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `hello` | `proto`, `bridge_version`, `herdr_version`, `herdr_theme?: {name, dark?, light?}`, `start_kinds?` |
 | `state` | `state: {herdr_version, herdr_connected, workspaces[], agents[], places[]}` |
 | `notify` | `note: {kind: needs_input\|finished, pane_id, agent_label, title?, workspace_label?}` |
-| `terminal_frame` | `pane_id`, `seq`, `frame: {cols, rows, lines: [[span]]}` |
+| `terminal_frame` | `pane_id`, `seq`, `frame: {cols, rows, lines: [[span]]}`, `scroll?: {offset_from_bottom, max_offset_from_bottom}` |
 | `watch_error` | `pane_id`, `message` (watch stays alive; pane may be closing) |
 | `chat` | `pane_id`, `mode: reset\|append\|older`, `items[]`, `has_older`, `unavailable?` |
 | `ack` | `op_id?`, `pane_id?` |
@@ -105,6 +106,19 @@ An item is `{id, kind, ...}`:
 | `notice` | `text` (compaction, interrupts, slash commands) |
 
 Long text is trimmed (output keeps its start and end).
+
+## Terminal scrollback
+
+The terminal mirror shows what herdr's pane shows. `scroll_pane` moves
+herdr's own view of the pane (`pane.scroll`) back into its history, by
+`lines` from where it is (clamped to the history there is), or to the bottom;
+each frame carries where the view is. herdr's scroll is shared with the Mac:
+scrolling on the phone scrolls that pane in herdr on the Mac too. So the app
+returns to the bottom when you leave the terminal tab or the agent, or the
+app goes to the background, and the bridge returns every pane a connection
+scrolled back when its last terminal watch on that pane ends or the
+connection drops. Agent panes only (`not_found` otherwise); a bad step is
+`bad_scroll`.
 
 ## Renaming and closing agents
 

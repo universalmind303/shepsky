@@ -55,6 +55,17 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         op_id: Option<String>,
     },
+    /// Scroll herdr's view of an agent's pane: `lines` up (+) or down (-),
+    /// or back to the bottom. The scroll is herdr's, so the Mac sees it too.
+    ScrollPane {
+        pane_id: String,
+        #[serde(default)]
+        lines: i64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        to_bottom: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        op_id: Option<String>,
+    },
     /// Rename an agent: its herdr agent name and its pane's label.
     RenameAgent {
         pane_id: String,
@@ -117,6 +128,9 @@ pub enum ServerMsg {
         pane_id: String,
         seq: u64,
         frame: Frame,
+        /// Where herdr's view of the pane is scrolled (absent: unknown).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scroll: Option<PaneScroll>,
     },
     /// A terminal watch hit an error (pane closing, read failed…).
     WatchError { pane_id: String, message: String },
@@ -348,6 +362,13 @@ pub struct Span {
     /// Reverse video: the phone swaps fg and bg after resolving them.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub r: bool,
+}
+
+/// How far herdr's view of a pane is scrolled back, in lines.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PaneScroll {
+    pub offset_from_bottom: u64,
+    pub max_offset_from_bottom: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
