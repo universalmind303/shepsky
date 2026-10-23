@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/collie-core", "crates/collie-bridge"]
+members = ["crates/collie-core", "crates/collie-bridge", "crates/collie-android"]
 
 [workspace.package]
 version = "0.1.0"
