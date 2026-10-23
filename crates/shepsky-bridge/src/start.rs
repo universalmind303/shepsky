@@ -170,7 +170,7 @@ fn herdr_code(err: &anyhow::Error) -> Option<&str> {
 }
 
 /// herdr's rule for agent names.
-fn valid_name(name: &str) -> bool {
+pub fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('a'..='z'))
         && name.len() <= 32

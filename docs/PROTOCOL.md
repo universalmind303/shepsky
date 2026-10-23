@@ -34,6 +34,8 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `prompt` | `pane_id`, `text`, `op_id?` | submit a prompt to the agent (≤ 8 KiB) |
 | `send_keys` | `pane_id`, `keys[]`, `op_id?` | e.g. `["1"]`, `["enter"]`, `["esc"]` (≤ 32 keys) |
 | `focus_agent` | `pane_id`, `op_id?` | marks looked-at; clears `done` |
+| `rename_agent` | `pane_id`, `name`, `op_id?` | herdr agent name and the pane's label |
+| `close_agent` | `pane_id`, `op_id?` | close the agent's pane, ending it (agent panes only) |
 | `start_agent` | `kind`, `workspace_id?`, `cwd?`, `name?`, `label?`, `op_id?` | start an agent; `ack` carries its `pane_id` |
 | `ping` | | → `pong` |
 
@@ -101,6 +103,17 @@ An item is `{id, kind, ...}`:
 
 Long text is trimmed (output keeps its start and end).
 
+## Renaming and closing agents
+
+`rename_agent` sets herdr's agent name (`agent.rename`) and the pane's label
+(`pane.rename`) to the same name; names follow herdr's rule (see below).
+`close_agent` closes the agent's pane (`pane.close`), which ends the agent and
+whatever it was doing. Both refuse a pane that doesn't host an agent
+(`not_found`); for a close, herdr is asked again (`agent.get`) right before
+it, so a pane whose agent just exited and left a shell is never closed.
+Closing a tab's last pane closes the tab; a workspace's last pane, the
+workspace.
+
 ## Starting agents
 
 `start_agent` opens a new tab in `workspace_id`, or (without one) a new
@@ -125,13 +138,15 @@ ANSI 0–15 and pre-swapped reverse video.
 
 Bridge: `unauthorized`, `bad_message`, `not_found`, `too_many_watches`,
 `too_large`, `bad_keys`, and for `start_agent`: `unsupported_kind`,
-`bad_directory`, `invalid_agent_name`.
+`bad_directory`, `invalid_agent_name` (also for `rename_agent`).
 
 herdr's own codes pass through on failed writes, notably `agent_blocked`
 (prompt refused while the agent waits on a question), `agent_not_ready` (the
 pane's foreground process isn't the agent, so nothing was typed) and
 `agent_not_found`; for `start_agent`, `agent_name_taken` and
-`agent_pane_busy`. Anything else without a herdr code is `herdr_error`.
+`agent_pane_busy`; for `rename_agent`, `agent_name_taken` and
+`agent_launch_pending` (an agent just started can't be renamed until herdr
+hears from its integration). Anything else without a herdr code is `herdr_error`.
 
 The phone's native core answers `not_connected` (with the command's `op_id`)
 while the link is down, and reports a rejected token as the final connection

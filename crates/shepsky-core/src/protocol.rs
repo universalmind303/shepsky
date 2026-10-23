@@ -55,6 +55,20 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         op_id: Option<String>,
     },
+    /// Rename an agent: its herdr agent name and its pane's label.
+    RenameAgent {
+        pane_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        op_id: Option<String>,
+    },
+    /// Close the pane an agent runs in, ending the agent. Only panes that
+    /// host an agent; never a plain shell.
+    CloseAgent {
+        pane_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        op_id: Option<String>,
+    },
     /// Start an agent: in a new tab of `workspace_id`, or else in a new
     /// workspace at `cwd` (named `label`, default: the directory's name). The
     /// `Ack` carries the new agent's `pane_id`.
@@ -545,6 +559,10 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(start, ClientMsg::StartAgent { ref kind, workspace_id: None, .. } if kind == "claude"));
+        let rename: ClientMsg = serde_json::from_str(r#"{"type":"rename_agent","pane_id":"w1:p1","name":"fixer","op_id":"3"}"#).unwrap();
+        assert!(matches!(rename, ClientMsg::RenameAgent { ref name, .. } if name == "fixer"));
+        let close: ClientMsg = serde_json::from_str(r#"{"type":"close_agent","pane_id":"w1:p1"}"#).unwrap();
+        assert!(matches!(close, ClientMsg::CloseAgent { op_id: None, .. }));
         let ack = ServerMsg::Ack { op_id: Some("2".into()), pane_id: Some("w3:p1".into()) };
         assert_eq!(serde_json::to_string(&ack).unwrap(), r#"{"type":"ack","op_id":"2","pane_id":"w3:p1"}"#);
 

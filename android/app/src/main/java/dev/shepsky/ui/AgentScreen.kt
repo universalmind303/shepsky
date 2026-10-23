@@ -104,6 +104,10 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
             ShepskyRepo.unwatchChat(paneId)
         }
     }
+    var managing by remember { mutableStateOf(false) }
+    if (managing && agent != null) {
+        AgentActions(agent, agent.workspace_label, onDismiss = { managing = false }, onClosed = onBack)
+    }
     // Chat unless there's no conversation to show, until you pick a tab.
     var picked by rememberSaveable(paneId) { mutableStateOf<String?>(null) }
     val tab = picked ?: if (chat.unavailable != null && chat.items.isEmpty()) TERMINAL else CHAT
@@ -124,6 +128,9 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
                     ).toTypedArray(),
                 ),
                 onBack = onBack,
+                actions = {
+                    if (agent != null) TapText("[⋯]", { managing = true }, contentDescription = "Rename or close")
+                },
             )
         },
         bottomBar = {

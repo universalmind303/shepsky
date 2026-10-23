@@ -1,6 +1,7 @@
 package dev.shepsky.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +52,7 @@ fun OverviewScreen(
     val count = state.agents.size
     val context = LocalContext.current
     var sort by remember { mutableStateOf(Prefs.overviewSort(context)) }
+    var managing by remember { mutableStateOf<AgentView?>(null) }
 
     Scaffold(
         topBar = {
@@ -94,6 +98,9 @@ fun OverviewScreen(
                     ?.let { workspaceName(it, state.workspaces) }
                     ?: agent.workspace_label ?: agent.workspace_id
             }
+            // Long-press: rename or close.
+            managing?.let { agent -> AgentActions(agent, workspaceOf(agent), onDismiss = { managing = null }) }
+
             // Whatever the order, agents waiting on you come first.
             val (waiting, rest) = state.agents.partition { it.status == "blocked" }
             val sectionPad = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp)
@@ -101,7 +108,7 @@ fun OverviewScreen(
                 if (waiting.isNotEmpty()) {
                     item(key = "needs-you") { SectionRule("needs you", sectionPad, color = t.red) }
                     items(waiting.size, key = { waiting[it].pane_id }) { i ->
-                        AgentRow(waiting[i], labelWidth, workspaceOf(waiting[i])) { onOpenAgent(waiting[i].pane_id) }
+                        AgentRow(waiting[i], labelWidth, workspaceOf(waiting[i]), { managing = waiting[i] }) { onOpenAgent(waiting[i].pane_id) }
                     }
                 }
                 when (sort) {
@@ -115,14 +122,14 @@ fun OverviewScreen(
                             item(key = "sorted") { SectionRule(if (sort == Prefs.SORT_NAME) "by name" else "recent", sectionPad) }
                         }
                         items(sorted.size, key = { sorted[it].pane_id }) { i ->
-                            AgentRow(sorted[i], labelWidth, workspaceOf(sorted[i])) { onOpenAgent(sorted[i].pane_id) }
+                            AgentRow(sorted[i], labelWidth, workspaceOf(sorted[i]), { managing = sorted[i] }) { onOpenAgent(sorted[i].pane_id) }
                         }
                     }
                     // By id: two workspaces can share a label (same directory).
                     else -> rest.groupBy { it.workspace_id }.forEach { (workspaceId, agents) ->
                         item(key = "ws-$workspaceId") { SectionRule(workspaceOf(agents.first()), sectionPad) }
                         items(agents.size, key = { agents[it].pane_id }) { i ->
-                            AgentRow(agents[i], labelWidth) { onOpenAgent(agents[i].pane_id) }
+                            AgentRow(agents[i], labelWidth, onLongClick = { managing = agents[i] }) { onOpenAgent(agents[i].pane_id) }
                         }
                     }
                 }
@@ -150,16 +157,31 @@ private fun SortLine(sort: String, onPick: (String) -> Unit) {
     Rule()
 }
 
-/** One agent; [workspace] is shown when the list isn't grouped by it. */
+/** One agent; [workspace] is shown when the list isn't grouped by it. Long-press to rename or close. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AgentRow(agent: AgentView, labelWidth: Int, workspace: String? = null, onClick: () -> Unit) {
+private fun AgentRow(
+    agent: AgentView,
+    labelWidth: Int,
+    workspace: String? = null,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
     val t = LocalTerm.current
     val color = statusColor(agent.status)
     Column(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+                onLongClickLabel = "Rename or close",
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(

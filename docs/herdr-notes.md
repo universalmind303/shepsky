@@ -94,5 +94,12 @@ pane_id}` types the kind's executable into that pane's shell and returns at
 once. A brand-new pane answers `agent_pane_busy`/`agent_pane_unavailable` until
 its shell is at a prompt, so the bridge retries for a few seconds. Names are
 unique per session (`agent_name_taken`). `workspace.close {workspace_id}` and
-`tab.close {tab_id}` undo a failed start. Nothing else is callable — see
-`ALLOWED_METHODS`.
+`tab.close {tab_id}` undo a failed start. Renaming and closing agents:
+`agent.rename {target, name}` (null clears it; `agent_name_taken`,
+`invalid_agent_name`, `agent_not_found` for a pane without an agent, and
+`agent_launch_pending` for an agent herdr started whose integration hasn't
+reported yet: a pi under a session supervisor may never report, so it stays
+pending), `pane.rename {pane_id, label}` (null clears), `pane.close {pane_id}`
+(ends the process; the tab's last pane closes the tab, the workspace's last
+pane closes the workspace, no error either way). Names and labels persist per
+pane. Nothing else is callable — see `ALLOWED_METHODS`.

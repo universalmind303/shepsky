@@ -254,6 +254,25 @@ object ShepskyRepo {
         }
     }
 
+    /** Rename an agent: its herdr name and its pane's label. */
+    fun renameAgent(paneId: String, name: String): String = sendOp { opId ->
+        buildJsonObject {
+            put("type", "rename_agent")
+            put("pane_id", paneId)
+            put("name", name)
+            put("op_id", opId)
+        }
+    }
+
+    /** Close the agent's pane, ending the agent. */
+    fun closeAgent(paneId: String): String = sendOp { opId ->
+        buildJsonObject {
+            put("type", "close_agent")
+            put("pane_id", paneId)
+            put("op_id", opId)
+        }
+    }
+
     /**
      * Start a [kind] agent in a new tab of [workspaceId], or else in a new
      * workspace at [cwd]. The bridge picks a name when [name] is null; its

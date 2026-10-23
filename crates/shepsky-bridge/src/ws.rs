@@ -363,6 +363,42 @@ async fn handle_client_msg(
             );
         }
 
+        ClientMsg::RenameAgent { pane_id, name, op_id } => {
+            if !start::valid_name(&name) {
+                send_err("invalid_agent_name", "lowercase letters, digits, - or _; starts with a letter; up to 32".into(), op_id).await;
+                return;
+            }
+            if !agent_exists(ui_rx, &pane_id) {
+                send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
+                return;
+            }
+            // The agent's name, then the pane's label to match.
+            run_herdr_ops(
+                state, out_tx, op_id,
+                vec![
+                    ("agent.rename", json!({ "target": pane_id, "name": name })),
+                    ("pane.rename", json!({ "pane_id": pane_id, "label": name })),
+                ],
+            );
+        }
+
+        ClientMsg::CloseAgent { pane_id, op_id } => {
+            // Only a pane hosting an agent, never a plain shell: we check our
+            // state, then herdr checks again right before the close (agent.get
+            // fails if the agent has exited meanwhile, which stops the ops).
+            if !agent_exists(ui_rx, &pane_id) {
+                send_err("not_found", format!("no agent in pane {pane_id}"), op_id).await;
+                return;
+            }
+            run_herdr_ops(
+                state, out_tx, op_id,
+                vec![
+                    ("agent.get", json!({ "target": pane_id })),
+                    ("pane.close", json!({ "pane_id": pane_id })),
+                ],
+            );
+        }
+
         ClientMsg::StartAgent { kind, name, workspace_id, cwd, label, op_id } => {
             let request = start::Request { kind, name, workspace_id, cwd, label };
             let checked = start::plan(request, &ui_rx.borrow().store, &state.home);

@@ -27,6 +27,16 @@ object UserText {
         else -> "Couldn't start the agent: ${message.ifBlank { code }}"
     }
 
+    /** Why a rename or close didn't happen. */
+    fun manageError(code: String, message: String): String = when {
+        code == "agent_name_taken" -> "Another agent already has that name."
+        code == "invalid_agent_name" -> "Names are lowercase letters, digits, - or _, start with a letter, up to 32."
+        code == "agent_not_found" || code == "not_found" -> "That pane isn't running an agent anymore."
+        "pending" in code -> "It's still starting up. Try again in a moment."
+        code == "not_connected" || code == "connection_lost" -> opError(code, message)
+        else -> "Didn't work: ${message.ifBlank { code }}"
+    }
+
     /** Banner / status text for a connection that isn't up, or null when it is. */
     fun connection(conn: ConnState, url: String): String? = when (conn) {
         ConnState.Connected -> null

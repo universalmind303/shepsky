@@ -44,6 +44,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "agent.start",
     "workspace.close",
     "tab.close",
+    // renaming and closing agents (guardrails in ws.rs: only panes that
+    // host an agent)
+    "agent.rename",
+    "pane.rename",
+    "pane.close",
 ];
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);

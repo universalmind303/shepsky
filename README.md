@@ -27,7 +27,8 @@ Your agents run in herdr on your Mac. shepsky puts them in your pocket:
   tab over.
 - **Send new prompts** and **watch the live terminal**, in your herdr theme.
 - **Start a new agent** (claude, codex or pi) in a new workspace or a new tab
-  of an existing one, right from the phone.
+  of an existing one, right from the phone; long-press one to rename or
+  close it.
 - **Private by design** — your Mac talks to your phone directly (ideally over
   your tailnet). No cloud, no account, no third server.
 
@@ -183,7 +184,8 @@ scripts/demo-session.sh down
   allowlist of herdr methods: reads plus `agent.prompt`, `agent.send_keys`,
   `agent.focus`, `pane.send_keys` and `pane.send_text`, and for starting
   agents `workspace.create`, `tab.create`, `agent.start` (plus
-  `workspace.close`/`tab.close`, only to undo a start that failed).
+  `workspace.close`/`tab.close`, only to undo a start that failed), and
+  `agent.rename`, `pane.rename` and `pane.close` to rename and close agents.
 - **shepsky can't type into a shell.** Prompts go through herdr's
   `agent.prompt` and keys through `agent.send_keys`. herdr only delivers them
   when the pane's foreground process really is that agent, and refuses a
@@ -196,6 +198,10 @@ scripts/demo-session.sh down
   the phone asks for a pane, never a file. Transcripts hold more than the
   screen (full tool output, the agent's thinking when it shares it), so the
   token guards that too.
+- **Closing ends an agent.** Long-press an agent to rename or close it.
+  Closing is only allowed on panes that host an agent (herdr confirms it
+  right before), never a plain shell, and the app asks first. Anyone holding
+  your token can end your agents, as well as start them.
 - **Starting agents is fenced in.** The phone can start only claude, codex
   or pi, with no command-line arguments (so no flags that skip their
   permission prompts), and only in an existing directory inside your home
