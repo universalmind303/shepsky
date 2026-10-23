@@ -8,6 +8,8 @@ license.workspace = true
 default = []
 # ANSI -> styled frame parsing (bridge-side; the Android cdylib skips it).
 ansi = ["dep:vt100"]
+# Agents' transcripts -> chat items (bridge-side).
+transcript = []
 
 [dependencies]
 serde.workspace = true

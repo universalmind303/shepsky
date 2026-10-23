@@ -8,3 +8,5 @@ pub mod herdr;
 pub mod notify;
 pub mod protocol;
 pub mod store;
+#[cfg(feature = "transcript")]
+pub mod transcript;

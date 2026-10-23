@@ -29,6 +29,12 @@ pub enum ClientMsg {
     /// Start receiving `TerminalFrame`s for a pane.
     WatchPane { pane_id: String },
     UnwatchPane { pane_id: String },
+    /// Start `chat` pushes: the agent's conversation, read from its own
+    /// transcript (the latest page first, then what's new).
+    WatchChat { pane_id: String },
+    UnwatchChat { pane_id: String },
+    /// One more page of older items for a watched chat.
+    ChatOlder { pane_id: String },
     /// Submit a prompt to the agent in `pane_id`.
     Prompt {
         pane_id: String,
@@ -100,6 +106,21 @@ pub enum ServerMsg {
     },
     /// A terminal watch hit an error (pane closing, read failed…).
     WatchError { pane_id: String, message: String },
+    /// Conversation items for a watched chat. `reset` replaces what the
+    /// phone holds, `append` adds new items or replaces ones with the same
+    /// id (a tool finishing), `older` goes in front.
+    Chat {
+        pane_id: String,
+        mode: ChatMode,
+        items: Vec<ChatItem>,
+        /// More items exist before the oldest one sent so far.
+        #[serde(default)]
+        has_older: bool,
+        /// Why there's no conversation to show (e.g. the agent never
+        /// reported its session); only with `reset` and no items.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unavailable: Option<String>,
+    },
     Ack {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         op_id: Option<String>,
@@ -308,6 +329,76 @@ pub struct Span {
     pub r: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatMode {
+    Reset,
+    Append,
+    Older,
+}
+
+/// One entry of an agent's conversation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatItem {
+    /// Position in the transcript: later items have bigger ids. An item sent
+    /// again with the same id replaces the old one.
+    pub id: u64,
+    #[serde(flatten)]
+    pub body: ChatBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChatBody {
+    /// Something you (or another session) sent the agent.
+    Prompt { text: String },
+    /// The agent talking: markdown-ish text.
+    Reply { text: String },
+    /// The agent thinking; `text` is empty when the agent keeps it private.
+    Thinking {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+    },
+    /// A tool call: `summary` is one line (`$ npm test`, a file path…),
+    /// `detail` the full input, `output` what came back (both trimmed).
+    Tool {
+        name: String,
+        summary: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
+        status: ToolStatus,
+    },
+    /// The agent asking you to choose (Claude's AskUserQuestion).
+    Question {
+        questions: Vec<QuestionView>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer: Option<String>,
+    },
+    /// Context compacted, turn interrupted, a slash command…
+    Notice { text: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolStatus {
+    Running,
+    Ok,
+    Error,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QuestionView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub question: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multi: bool,
+}
+
 /// A terminal color: one of the 16 theme colors, or an exact RGB.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -449,6 +540,27 @@ mod tests {
         assert!(matches!(start, ClientMsg::StartAgent { ref kind, workspace_id: None, .. } if kind == "claude"));
         let ack = ServerMsg::Ack { op_id: Some("2".into()), pane_id: Some("w3:p1".into()) };
         assert_eq!(serde_json::to_string(&ack).unwrap(), r#"{"type":"ack","op_id":"2","pane_id":"w3:p1"}"#);
+
+        let chat = ServerMsg::Chat {
+            pane_id: "w1:p1".into(),
+            mode: ChatMode::Append,
+            items: vec![ChatItem {
+                id: 7,
+                body: ChatBody::Tool {
+                    name: "Bash".into(),
+                    summary: "$ ls".into(),
+                    detail: None,
+                    output: None,
+                    status: ToolStatus::Running,
+                },
+            }],
+            has_older: true,
+            unavailable: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&chat).unwrap(),
+            r#"{"type":"chat","pane_id":"w1:p1","mode":"append","items":[{"id":7,"kind":"tool","name":"Bash","summary":"$ ls","status":"running"}],"has_older":true}"#
+        );
 
         // Unknown fields must not break parsing (forward compat).
         let msg: ServerMsg =
