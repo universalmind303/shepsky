@@ -110,6 +110,7 @@ async fn follow(
                 if asked.is_none() { return }
                 if let Some(t) = tail.as_mut() {
                     let items = tokio::task::block_in_place(|| t.older()).unwrap_or_default();
+                    page_log(&pane_id, &items, t.stats);
                     let msg = chat(&pane_id, ChatMode::Older, items, t.start > 0, None);
                     if out.send(msg).await.is_err() { return }
                 }
@@ -132,6 +133,7 @@ async fn follow(
                 Ok((target, agent)) if tail.as_ref().map(|t| &t.target) != Some(&target) => {
                     match tokio::task::block_in_place(|| Tail::open(target, &agent, &places)) {
                         Ok((t, items)) => {
+                            page_log(&pane_id, &items, t.stats);
                             let msg = chat(&pane_id, ChatMode::Reset, items, t.start > 0, None);
                             tail = Some(t);
                             said_unavailable = None;
@@ -168,6 +170,18 @@ async fn follow(
             }
         }
     }
+}
+
+/// What a page cost to read (debug log; no content).
+fn page_log(pane_id: &str, items: &[ChatItem], stats: Stats) {
+    tracing::debug!(
+        pane_id,
+        items = items.len(),
+        read_ms = stats.read.as_secs_f64() * 1e3,
+        parse_ms = stats.parse.as_secs_f64() * 1e3,
+        bytes = stats.bytes,
+        "chat page"
+    );
 }
 
 fn chat(pane_id: &str, mode: ChatMode, items: Vec<ChatItem>, has_older: bool, unavailable: Option<String>) -> ServerMsg {
@@ -376,6 +390,15 @@ struct Tail {
     home: Option<String>,
     start: u64,
     end: u64,
+    /// Time spent on the last page, for the debug log and the speed test.
+    stats: Stats,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct Stats {
+    read: Duration,
+    parse: Duration,
+    bytes: u64,
 }
 
 impl Tail {
@@ -393,6 +416,7 @@ impl Tail {
             home: places.home.to_str().map(str::to_string),
             start: len,
             end: len,
+            stats: Stats::default(),
         };
         // A line still being written isn't ours yet.
         tail.end = tail.last_newline_before(len)?;
@@ -403,43 +427,57 @@ impl Tail {
 
     /// One page of items before `start`.
     fn older(&mut self) -> std::io::Result<Vec<ChatItem>> {
+        self.stats = Stats::default();
         let mut file = File::open(&self.target.path)?;
         let mut items = Vec::new();
         let mut read = 0;
-        let mut chunk = CHUNK;
         while items.len() < PAGE && self.start > 0 && read < MAX_PAGE_BYTES {
-            // Read one byte early so a chunk that begins exactly on a line
-            // start is recognized as such.
-            let from = self.start.saturating_sub(chunk);
-            let at = from.saturating_sub(1);
-            let buf = read_range(&mut file, at, self.start)?;
-            // The newline just before `start` ends the previous line; the
-            // line boundary we need is an earlier one.
-            let searchable = &buf[..buf.len() - 1];
-            let lines_start = if from == 0 {
-                0
-            } else {
-                match searchable.iter().position(|b| *b == b'\n') {
-                    Some(i) => at + i as u64 + 1,
-                    // One line longer than the chunk: read further back.
-                    None if chunk < MAX_LINE => {
-                        chunk *= 2;
-                        continue;
-                    }
-                    None => {
-                        self.start = 0; // can't page past it
-                        break;
-                    }
-                }
+            let Some((lines_start, buf_from, buf)) = self.lines_before(&mut file)? else {
+                self.start = 0; // a line too long to page past
+                break;
             };
-            let body = &buf[(lines_start - at) as usize..];
+            let body = &buf[(lines_start - buf_from) as usize..];
+            let started = Instant::now();
             items.extend(self.window.add(self.parse(lines_start, body)));
+            self.stats.parse += started.elapsed();
             read += self.start - lines_start;
             self.start = lines_start;
-            chunk = CHUNK;
         }
         items.sort_by_key(|i| i.id);
         Ok(items)
+    }
+
+    /// The bytes before `start` back to a line start, read once: a line
+    /// longer than a chunk grows the read further back instead of starting
+    /// over. Returns `(lines_start, buf_start, buf)`.
+    fn lines_before(&mut self, file: &mut File) -> std::io::Result<Option<(u64, u64, Vec<u8>)>> {
+        let mut from = self.start;
+        let mut step = CHUNK;
+        let mut buf = Vec::new();
+        loop {
+            let to = from;
+            from = from.saturating_sub(step);
+            let started = Instant::now();
+            let mut head = read_range(file, from, to)?;
+            self.stats.read += started.elapsed();
+            self.stats.bytes += head.len() as u64;
+            head.extend_from_slice(&buf);
+            buf = head;
+            if from == 0 {
+                return Ok(Some((0, 0, buf)));
+            }
+            // The last byte is the newline that ends the line before
+            // `start`; the boundary we need is an earlier one. (A chunk that
+            // begins exactly on a line start just leaves that line for the
+            // next page.)
+            if let Some(i) = buf[..buf.len() - 1].iter().position(|b| *b == b'\n') {
+                return Ok(Some((from + i as u64 + 1, from, buf)));
+            }
+            if self.start - from >= MAX_LINE {
+                return Ok(None);
+            }
+            step *= 2;
+        }
     }
 
     /// Items written since the last look (new ones, and ones that changed).
@@ -568,6 +606,102 @@ mod tests {
         file.flush().unwrap();
         assert_eq!(texts(&tail.newer().unwrap()), ["fresh"]);
         assert!(tail.newer().unwrap().is_empty());
+    }
+
+    /// A made-up Claude transcript shaped like a long real one: big tool
+    /// outputs, base64 screenshots, multi-MB request blobs that carry no chat
+    /// items, redacted thinking with long signatures. Never a real file.
+    pub(super) fn synthetic_transcript(path: &Path, target_bytes: usize) {
+        let mut out = std::io::BufWriter::new(File::create(path).unwrap());
+        let mut seed: u64 = 7;
+        let mut rand = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n
+        };
+        let text = |len: usize| "lorem ipsum dolor sit amet consectetur ".repeat(len / 39 + 1)[..len].to_string();
+        let mut written = 0usize;
+        let mut turn = 0;
+        while written < target_bytes {
+            turn += 1;
+            let mut lines = vec![
+                serde_json::json!({"type": "user", "message": {"role": "user", "content": format!("prompt {turn}: {}", text(200))}}),
+                serde_json::json!({"type": "attachment", "attachment": {"type": "total_tokens_reminder", "text": text(300)}}),
+                serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "S".repeat(1500)}]}}),
+                serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text(600)}]}}),
+            ];
+            for call in 0..(3 + rand(5)) {
+                let id = format!("toolu_{turn}_{call}");
+                if rand(10) == 0 {
+                    // A screenshot read back: ~800 KB of base64.
+                    lines.push(serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": id, "name": "Read", "input": {"file_path": "/tmp/shot.png"}}]}}));
+                    lines.push(serde_json::json!({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBOR".repeat(160_000)}}]}]}}));
+                } else {
+                    let size = if rand(8) == 0 { 200_000 } else { 2_000 + rand(30_000) };
+                    lines.push(serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": id, "name": "Bash", "input": {"command": format!("cargo test --all {call}"), "description": "run"}}]}}));
+                    lines.push(serde_json::json!({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": text(size), "is_error": false}]}}));
+                }
+            }
+            if rand(3) == 0 {
+                // What Claude Code logs about each API request: no chat items.
+                lines.push(serde_json::json!({"type": "api-request-blob", "blob": text(1_000_000 + rand(1_500_000))}));
+            }
+            for line in lines {
+                let line = format!("{line}\n");
+                written += line.len();
+                out.write_all(line.as_bytes()).unwrap();
+            }
+        }
+    }
+
+    /// How long a big transcript takes to open and page through:
+    ///   cargo test --release -p shepsky-bridge chat_speed -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn chat_speed() {
+        let dir = temp("speed");
+        let path = dir.join("big.jsonl");
+        synthetic_transcript(&path, 50 << 20);
+        let mb = std::fs::metadata(&path).unwrap().len() as f64 / 1e6;
+        println!("synthetic transcript: {mb:.1} MB");
+        // To try it in the app: put it where a demo agent's transcript goes.
+        if let Some(out) = std::env::var_os("SHEPSKY_SYNTHETIC_OUT") {
+            std::fs::copy(&path, out).unwrap();
+        }
+
+        let places = Places { home: dir.clone(), demo: None };
+        let target = Target { format: Format::Claude, path: path.clone() };
+        let started = Instant::now();
+        let (mut tail, first) = Tail::open(target, &Agent::default(), &places).unwrap();
+        let open = started.elapsed();
+        let report = |label: &str, items: &[ChatItem], total: Duration, stats: Stats| {
+            let json = serde_json::to_string(&chat("w1:p1", ChatMode::Older, items.to_vec(), true, None)).unwrap();
+            println!(
+                "{label:>10}: {:>4} items  {:>6.1} KB json  {:>6.1} ms total  (read {:>5.1} ms, parse {:>6.1} ms, {:>6.2} MB read)",
+                items.len(),
+                json.len() as f64 / 1024.0,
+                total.as_secs_f64() * 1e3,
+                stats.read.as_secs_f64() * 1e3,
+                stats.parse.as_secs_f64() * 1e3,
+                stats.bytes as f64 / 1e6,
+            );
+        };
+        report("first page", &first, open, tail.stats);
+        for n in 1..=5 {
+            let started = Instant::now();
+            let page = tail.older().unwrap();
+            report(&format!("older {n}"), &page, started.elapsed(), tail.stats);
+        }
+        // The whole file, for a throughput figure.
+        let started = Instant::now();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut offset = 0u64;
+        let mut items = 0;
+        for line in text.split_inclusive('\n') {
+            items += parse_line(Format::Claude, offset, line, &Ctx::default()).len();
+            offset += line.len() as u64;
+        }
+        let secs = started.elapsed().as_secs_f64();
+        println!("whole file: {items} items in {:.0} ms ({:.0} MB/s)", secs * 1e3, mb / secs);
     }
 
     #[test]

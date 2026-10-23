@@ -1,5 +1,6 @@
 package dev.shepsky.core
 
+import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -55,6 +56,8 @@ data class ChatState(
     /** The bridge has answered at least once. */
     val loaded: Boolean = false,
     val loadingOlder: Boolean = false,
+    /** When the last page arrived ([SystemClock.elapsedRealtimeNanos]), to time drawing it. */
+    val receivedAt: Long = 0,
 )
 
 /**
@@ -311,6 +314,7 @@ object ShepskyRepo {
     }
 
     private fun handleEvent(text: String) {
+        val started = SystemClock.elapsedRealtimeNanos()
         try {
             val obj = json.parseToJsonElement(text).jsonObject
             when (obj["type"]?.jsonPrimitive?.content) {
@@ -357,10 +361,15 @@ object ShepskyRepo {
                     val unavailable = obj["unavailable"]?.jsonPrimitive?.contentOrNull
                     val chat = mutableChat(paneId)
                     val now = chat.value
-                    chat.value = when (obj["mode"]?.jsonPrimitive?.content) {
-                        "reset" -> ChatState(items, hasOlder, unavailable, loaded = true)
-                        "older" -> now.copy(items = merge(now.items, items), hasOlder = hasOlder, loadingOlder = false)
+                    val mode = obj["mode"]?.jsonPrimitive?.content
+                    chat.value = when (mode) {
+                        "reset" -> ChatState(items, hasOlder, unavailable, loaded = true, receivedAt = started)
+                        "older" -> now.copy(items = merge(now.items, items), hasOlder = hasOlder, loadingOlder = false, receivedAt = started)
                         else -> now.copy(items = merge(now.items, items), hasOlder = hasOlder, loaded = true)
+                    }
+                    if (mode != "append") {
+                        val ms = (SystemClock.elapsedRealtimeNanos() - started) / 1e6
+                        Log.d(TAG, "chat $mode: ${items.size} items, ${text.length / 1024} KB decoded in ${"%.1f".format(ms)} ms")
                     }
                 }
                 "ack" -> {

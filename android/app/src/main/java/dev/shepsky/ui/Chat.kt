@@ -1,5 +1,7 @@
 package dev.shepsky.ui
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -93,6 +96,13 @@ fun ChatView(
     }
     LaunchedEffect(chat.items.lastOrNull()?.id, blocked) {
         if (following) list.scrollToItem(0)
+    }
+    // How long a page takes from arriving to being on screen.
+    LaunchedEffect(chat.receivedAt) {
+        if (chat.receivedAt == 0L) return@LaunchedEffect
+        withFrameNanos {}
+        val ms = (SystemClock.elapsedRealtimeNanos() - chat.receivedAt) / 1e6
+        Log.d("shepsky", "chat page on screen ${"%.1f".format(ms)} ms after it arrived")
     }
 
     Box(Modifier.fillMaxSize()) {
