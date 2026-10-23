@@ -15,6 +15,18 @@ object UserText {
         else -> "Couldn't send: ${message.ifBlank { code }}"
     }
 
+    /** Why an agent didn't start. The bridge's own messages for a bad
+     *  directory or name are already written for people. */
+    fun startError(code: String, message: String): String = when (code) {
+        "bad_directory", "invalid_agent_name" -> message.ifBlank { "Check the directory and name." }
+        "unsupported_kind" -> "Your Mac doesn't allow starting that kind of agent from the phone."
+        "agent_name_taken" -> "That name is taken. Pick another, or leave it blank."
+        "agent_pane_busy", "agent_pane_unavailable" -> "The new tab's shell didn't come up in time. Try again."
+        "not_found" -> "That workspace is gone."
+        "not_connected", "connection_lost" -> opError(code, message)
+        else -> "Couldn't start the agent: ${message.ifBlank { code }}"
+    }
+
     /** Banner / status text for a connection that isn't up, or null when it is. */
     fun connection(conn: ConnState, url: String): String? = when (conn) {
         ConnState.Connected -> null

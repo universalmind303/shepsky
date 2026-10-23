@@ -33,11 +33,15 @@ sealed interface ConnState {
 sealed interface OpResult {
     val opId: String
 
-    data class Ok(override val opId: String) : OpResult
+    /** [paneId]: for [ShepskyRepo.startAgent], the new agent's pane. */
+    data class Ok(override val opId: String, val paneId: String? = null) : OpResult
 
     data class Failed(override val opId: String, val code: String, val message: String) : OpResult {
         /** What to tell the user. */
         val friendly: String get() = UserText.opError(code, message)
+
+        /** What to tell the user when starting an agent failed. */
+        val friendlyStart: String get() = UserText.startError(code, message)
     }
 }
 
@@ -66,12 +70,17 @@ object ShepskyRepo {
     /** herdr's theme, from the bridge's hello (null until the first one). */
     val herdrTheme: StateFlow<HerdrThemeView?> = _herdrTheme.asStateFlow()
 
+    private val _startKinds = MutableStateFlow<List<String>>(emptyList())
+
+    /** Agent kinds the bridge lets the phone start (empty: an older bridge). */
+    val startKinds: StateFlow<List<String>> = _startKinds.asStateFlow()
+
     /** Notifications (needs_input / finished) as they happen. */
     val notes = MutableSharedFlow<NoteView>(extraBufferCapacity = 16)
 
     private val _opResults = MutableSharedFlow<OpResult>(extraBufferCapacity = 32)
 
-    /** One result per op id returned by [prompt], [sendKeys] and [focusAgent]. */
+    /** One result per op id returned by [prompt], [sendKeys], [focusAgent] and [startAgent]. */
     val opResults: SharedFlow<OpResult> = _opResults.asSharedFlow()
 
     private val nextOp = AtomicLong()
@@ -178,6 +187,22 @@ object ShepskyRepo {
         }
     }
 
+    /**
+     * Start a [kind] agent in a new tab of [workspaceId], or else in a new
+     * workspace at [cwd]. The bridge picks a name when [name] is null; its
+     * ack carries the new pane ([OpResult.Ok.paneId]).
+     */
+    fun startAgent(kind: String, workspaceId: String?, cwd: String?, name: String?): String = sendOp { opId ->
+        buildJsonObject {
+            put("type", "start_agent")
+            put("kind", kind)
+            workspaceId?.let { put("workspace_id", it) }
+            cwd?.let { put("cwd", it) }
+            name?.let { put("name", it) }
+            put("op_id", opId)
+        }
+    }
+
     private fun sendOp(build: (String) -> JsonObject): String {
         val opId = "op${nextOp.incrementAndGet()}"
         synchronized(pending) { pending += opId }
@@ -233,6 +258,7 @@ object ShepskyRepo {
                 }
                 "hello" -> {
                     obj["herdr_theme"]?.let { _herdrTheme.value = json.decodeFromJsonElement<HerdrThemeView>(it) }
+                    _startKinds.value = obj["start_kinds"]?.let { json.decodeFromJsonElement<List<String>>(it) }.orEmpty()
                     _conn.value = ConnState.Connected
                     // A fresh connection has no watches yet.
                     synchronized(watchCounts) { watchCounts.keys.toList() }.forEach(::sendWatch)
@@ -252,7 +278,7 @@ object ShepskyRepo {
                 }
                 "ack" -> {
                     val opId = obj["op_id"]?.jsonPrimitive?.contentOrNull ?: return
-                    resolve(OpResult.Ok(opId))
+                    resolve(OpResult.Ok(opId, paneId = obj["pane_id"]?.jsonPrimitive?.contentOrNull))
                 }
                 "error" -> {
                     val code = obj["code"]?.jsonPrimitive?.contentOrNull ?: "error"

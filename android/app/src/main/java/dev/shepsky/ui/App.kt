@@ -18,6 +18,7 @@ import dev.shepsky.service.ShepskyService
 sealed interface Screen {
     data object Overview : Screen
     data class Agent(val paneId: String) : Screen
+    data object NewAgent : Screen
 }
 
 @Composable
@@ -82,10 +83,17 @@ fun App() {
     when (val screen = stack.last()) {
         is Screen.Overview -> OverviewScreen(
             onOpenAgent = { stack = stack + Screen.Agent(it) },
+            onNewAgent = { stack = stack + Screen.NewAgent },
             onOpenSettings = { showPair = true },
         )
         is Screen.Agent -> AgentScreen(
             paneId = screen.paneId,
+            onOpenSettings = { showPair = true },
+            onBack = { stack = stack.dropLast(1) },
+        )
+        // Back from a just-started agent goes to the overview, not the form.
+        is Screen.NewAgent -> NewAgentScreen(
+            onStarted = { stack = stack.dropLast(1) + Screen.Agent(it) },
             onOpenSettings = { showPair = true },
             onBack = { stack = stack.dropLast(1) },
         )

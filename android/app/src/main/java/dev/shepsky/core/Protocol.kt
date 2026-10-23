@@ -27,6 +27,8 @@ data class StateView(
     val herdr_connected: Boolean = false,
     val workspaces: List<WorkspaceView> = emptyList(),
     val agents: List<AgentView> = emptyList(),
+    /** Directories worth offering for a new workspace, most-used first. */
+    val places: List<String> = emptyList(),
 )
 
 @Serializable

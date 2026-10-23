@@ -1,6 +1,7 @@
 package dev.shepsky.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,10 +35,13 @@ import kotlinx.coroutines.delay
 @Composable
 fun OverviewScreen(
     onOpenAgent: (String) -> Unit,
+    onNewAgent: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by ShepskyRepo.state.collectAsState()
     val conn by ShepskyRepo.conn.collectAsState()
+    // An older bridge doesn't offer starting agents.
+    val canStart = ShepskyRepo.startKinds.collectAsState().value.isNotEmpty()
     val t = LocalTerm.current
     val count = state.agents.size
 
@@ -51,7 +55,10 @@ fun OverviewScreen(
                     linkSeg(),
                     Seg(t.id, t.dim),
                 ),
-                actions = { TapText("[≡]", onOpenSettings, contentDescription = "Settings") },
+                actions = {
+                    if (canStart) TapText("[+]", onNewAgent, contentDescription = "New agent")
+                    TapText("[≡]", onOpenSettings, contentDescription = "Settings")
+                },
             )
         },
     ) { padding ->
@@ -60,20 +67,28 @@ fun OverviewScreen(
 
             if (state.agents.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    BlinkingLine(
-                        if (conn is ConnState.Connected) "no agents running" else "waiting for your mac",
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        BlinkingLine(
+                            if (conn is ConnState.Connected) "no agents running" else "waiting for your mac",
+                        )
+                        if (canStart && conn is ConnState.Connected) KeyCap("+ start an agent", onClick = onNewAgent)
+                    }
                 }
                 return@Column
             }
 
             // Labels line up in one column, like a herdr sidebar.
             val labelWidth = state.agents.maxOf { it.label.length }.coerceIn(5, 12)
-            val byWorkspace = state.agents.groupBy { it.workspace_label ?: it.workspace_id }
+            // By id: two workspaces can share a label (same directory).
+            val byWorkspace = state.agents.groupBy { it.workspace_id }
             LazyColumn(Modifier.fillMaxSize()) {
-                byWorkspace.forEach { (workspace, agents) ->
-                    item(key = "ws-$workspace") {
-                        SectionRule(workspace, Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp))
+                byWorkspace.forEach { (workspaceId, agents) ->
+                    item(key = "ws-$workspaceId") {
+                        val ws = state.workspaces.firstOrNull { it.workspace_id == workspaceId }
+                        SectionRule(
+                            ws?.let { workspaceName(it, state.workspaces) } ?: agents.first().workspace_label ?: workspaceId,
+                            Modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp),
+                        )
                     }
                     items(agents.size, key = { agents[it].pane_id }) { index ->
                         AgentRow(agents[index], labelWidth, onClick = { onOpenAgent(agents[index].pane_id) })

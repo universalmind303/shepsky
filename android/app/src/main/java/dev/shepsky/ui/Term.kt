@@ -141,7 +141,8 @@ fun SectionRule(label: String, modifier: Modifier = Modifier, color: Color = Loc
     )
 }
 
-/** A key: square, 1px border, at least 48dp. [hot] = lit up in red. */
+/** A key: square, 1px border, at least 48dp. [hot] = lit up in red;
+ *  [selected] = the chosen one of a set, in the accent color. */
 @Composable
 fun KeyCap(
     label: String,
@@ -149,17 +150,20 @@ fun KeyCap(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     hot: Boolean = false,
+    selected: Boolean = false,
     contentDescription: String? = null,
 ) {
     val t = LocalTerm.current
     val border = when {
         !enabled -> t.dim.copy(alpha = 0.5f)
         hot -> t.red
+        selected -> t.accent
         else -> t.dim
     }
     val text = when {
         !enabled -> t.dim.copy(alpha = 0.7f)
         hot -> t.bg
+        selected -> t.accent
         else -> t.fg
     }
     Box(
@@ -177,7 +181,7 @@ fun KeyCap(
             label,
             color = text,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (hot && enabled) FontWeight.Bold else null,
+            fontWeight = if ((hot || selected) && enabled) FontWeight.Bold else null,
         )
     }
 }

@@ -57,6 +57,14 @@ object Prefs {
         prefs(context).edit().putFloat("terminal_sp", sp).apply()
     }
 
+    /** The agent kind last started from the phone. */
+    fun lastStartKind(context: Context): String? =
+        prefs(context).getString("start_kind", null)
+
+    fun setLastStartKind(context: Context, kind: String) {
+        prefs(context).edit().putString("start_kind", kind).apply()
+    }
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 }
