@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import dev.collie.MainActivity
+import dev.collie.PairLink
 import dev.collie.core.CollieRepo
 import dev.collie.data.Prefs
 import dev.collie.service.CollieService
@@ -24,6 +25,7 @@ sealed interface Screen {
 fun App() {
     val context = LocalContext.current
     var showPair by remember { mutableStateOf(!Prefs.isPaired(context)) }
+    var pairPrefill by remember { mutableStateOf<PairLink?>(null) }
     var stack by remember { mutableStateOf<List<Screen>>(listOf(Screen.Overview)) }
 
     // Reconnect the service on app open (e.g. after a reboot).
@@ -45,12 +47,27 @@ fun App() {
         }
     }
 
+    // A pairing link opens the pair screen pre-filled (never auto-connects).
+    val pendingPair by MainActivity.pendingPair.collectAsState()
+    LaunchedEffect(pendingPair) {
+        pendingPair?.let { link ->
+            MainActivity.pendingPair.value = null
+            pairPrefill = link
+            showPair = true
+        }
+    }
+
     if (showPair) {
-        BackHandler(enabled = Prefs.isPaired(context)) { showPair = false }
+        val close = {
+            showPair = false
+            pairPrefill = null
+        }
+        BackHandler(enabled = Prefs.isPaired(context)) { close() }
         PairScreen(
+            prefill = pairPrefill,
             canDismiss = Prefs.isPaired(context),
-            onDismiss = { showPair = false },
-            onPaired = { showPair = false },
+            onDismiss = close,
+            onPaired = close,
         )
         return
     }

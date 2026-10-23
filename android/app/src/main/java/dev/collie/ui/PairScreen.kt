@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -31,22 +32,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import dev.collie.PairLink
 import dev.collie.data.Prefs
 import dev.collie.service.CollieService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairScreen(
+    prefill: PairLink?,
     canDismiss: Boolean,
     onDismiss: () -> Unit,
     onPaired: () -> Unit,
 ) {
     val context = LocalContext.current
-    var url by remember { mutableStateOf(Prefs.url(context).ifBlank { "ws://" }) }
-    var token by remember { mutableStateOf(Prefs.token(context)) }
+    var url by remember(prefill) { mutableStateOf(prefill?.url ?: Prefs.url(context).ifBlank { "ws://" }) }
+    var token by remember(prefill) { mutableStateOf(prefill?.token ?: Prefs.token(context)) }
 
     fun connect() {
         Prefs.save(context, url, token)
@@ -82,9 +88,26 @@ fun PairScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
-                "Run `collie-bridge pair` on your Mac and copy the values here.",
+                buildAnnotatedString {
+                    append("On your Mac, run ")
+                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append("collie-bridge pair") }
+                    append(" and enter the URL and token it prints.")
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
+            if (prefill != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text(
+                        "Filled in from a pairing link. Check that the URL is your Mac, then tap Connect.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
