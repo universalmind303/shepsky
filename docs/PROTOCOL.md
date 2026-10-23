@@ -81,9 +81,12 @@ The chat view is the agent's conversation read from its own transcript
 integrations report which session each agent is in (`agent_session`); the
 bridge looks that up only inside the agent's own folder (`~/.claude/projects`,
 `~/.codex/sessions`, `~/.pi/agent/sessions`). The phone names a pane, never a
-file. Codex often doesn't report, so the bridge falls back to the newest
-recent rollout started in the agent's directory, told apart by thread name
-when codex agents share one. With nothing to go on, `chat` comes back as a
+file. Codex often can't report (its hooks run in the shared app-server, which
+doesn't know the pane), so the bridge looks at the recent interactive
+rollouts started in the agent's directory (not `codex exec` runs or
+sub-agents), narrows them by the thread name in the agent's title, and when
+more than one is left picks the one whose end matches the pane's visible
+screen (re-checked every 30 s). With nothing to go on, `chat` comes back as a
 `reset` with no items and an `unavailable` reason; the terminal still works.
 
 `chat` modes: `reset` replaces what the phone holds (the latest page, or a
