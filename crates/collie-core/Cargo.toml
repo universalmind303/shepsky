@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# ANSI -> styled frame parsing (bridge-side; the Android cdylib skips it).
+ansi = ["dep:vt100"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+vt100 = { version = "0.15", optional = true }
