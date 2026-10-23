@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -44,6 +45,17 @@ sealed interface OpResult {
         val friendlyStart: String get() = UserText.startError(code, message)
     }
 }
+
+/** An agent's conversation as far as it's loaded, oldest first. */
+data class ChatState(
+    val items: List<ChatItem> = emptyList(),
+    val hasOlder: Boolean = false,
+    /** Why there's no conversation (the terminal still works). */
+    val unavailable: String? = null,
+    /** The bridge has answered at least once. */
+    val loaded: Boolean = false,
+    val loadingOlder: Boolean = false,
+)
 
 /**
  * Single source of truth for the UI: wraps the native core, parses its event
@@ -97,6 +109,17 @@ object ShepskyRepo {
      */
     private val watchCounts = HashMap<String, Int>()
 
+    private val chats = HashMap<String, MutableStateFlow<ChatState>>()
+
+    /** Chats being watched, counted like [watchCounts]. */
+    private val chatWatchCounts = HashMap<String, Int>()
+
+    private fun mutableChat(paneId: String): MutableStateFlow<ChatState> = synchronized(chats) {
+        chats.getOrPut(paneId) { MutableStateFlow(ChatState()) }
+    }
+
+    fun chatFlow(paneId: String): StateFlow<ChatState> = mutableChat(paneId)
+
     private fun mutableFrame(paneId: String): MutableStateFlow<Frame?> = synchronized(frames) {
         frames.getOrPut(paneId) { MutableStateFlow(null) }
     }
@@ -129,6 +152,7 @@ object ShepskyRepo {
         _state.value = StateView()
         failPending("not_connected")
         synchronized(frames) { frames.values.forEach { it.value = null } }
+        synchronized(chats) { chats.values.forEach { it.value = ChatState() } }
     }
 
     // --- commands ----------------------------------------------------------
@@ -154,6 +178,46 @@ object ShepskyRepo {
             put("pane_id", paneId)
         }.toString())
     }
+
+    /** Start chat pushes for an agent; pair every call with [unwatchChat]. */
+    fun watchChat(paneId: String) {
+        val first = synchronized(chatWatchCounts) {
+            val n = (chatWatchCounts[paneId] ?: 0) + 1
+            chatWatchCounts[paneId] = n
+            n == 1
+        }
+        if (first) sendChatWatch(paneId)
+    }
+
+    fun unwatchChat(paneId: String) {
+        val last = synchronized(chatWatchCounts) {
+            val n = (chatWatchCounts[paneId] ?: return) - 1
+            if (n == 0) chatWatchCounts.remove(paneId) else chatWatchCounts[paneId] = n
+            n == 0
+        }
+        if (last) send(buildJsonObject {
+            put("type", "unwatch_chat")
+            put("pane_id", paneId)
+        }.toString())
+    }
+
+    /** Ask for the page before the oldest loaded item (no-op while one is coming). */
+    fun loadOlderChat(paneId: String) {
+        val chat = mutableChat(paneId)
+        val now = chat.value
+        if (!now.hasOlder || now.loadingOlder) return
+        chat.value = now.copy(loadingOlder = true)
+        val sent = send(buildJsonObject {
+            put("type", "chat_older")
+            put("pane_id", paneId)
+        }.toString())
+        if (!sent) chat.value = chat.value.copy(loadingOlder = false)
+    }
+
+    private fun sendChatWatch(paneId: String) = send(buildJsonObject {
+        put("type", "watch_chat")
+        put("pane_id", paneId)
+    }.toString())
 
     private fun sendWatch(paneId: String) = send(buildJsonObject {
         put("type", "watch_pane")
@@ -237,6 +301,15 @@ object ShepskyRepo {
         override fun onEvent(json: ByteArray) = handleEvent(String(json))
     }
 
+    /** [old] plus [new], by id: same id = replaced (a tool finishing). */
+    private fun merge(old: List<ChatItem>, new: List<ChatItem>): List<ChatItem> {
+        if (new.isEmpty()) return old
+        val byId = LinkedHashMap<Long, ChatItem>(old.size + new.size)
+        old.forEach { byId[it.id] = it }
+        new.forEach { byId[it.id] = it }
+        return byId.values.sortedBy { it.id }
+    }
+
     private fun handleEvent(text: String) {
         try {
             val obj = json.parseToJsonElement(text).jsonObject
@@ -262,6 +335,7 @@ object ShepskyRepo {
                     _conn.value = ConnState.Connected
                     // A fresh connection has no watches yet.
                     synchronized(watchCounts) { watchCounts.keys.toList() }.forEach(::sendWatch)
+                    synchronized(chatWatchCounts) { chatWatchCounts.keys.toList() }.forEach(::sendChatWatch)
                 }
                 "state" -> {
                     val state = obj["state"] ?: return
@@ -275,6 +349,19 @@ object ShepskyRepo {
                     val paneId = obj["pane_id"]?.jsonPrimitive?.content ?: return
                     val frame = obj["frame"] ?: return
                     mutableFrame(paneId).value = json.decodeFromJsonElement<Frame>(frame)
+                }
+                "chat" -> {
+                    val paneId = obj["pane_id"]?.jsonPrimitive?.content ?: return
+                    val items = obj["items"]?.let { json.decodeFromJsonElement<List<ChatItem>>(it) }.orEmpty()
+                    val hasOlder = obj["has_older"]?.jsonPrimitive?.booleanOrNull ?: false
+                    val unavailable = obj["unavailable"]?.jsonPrimitive?.contentOrNull
+                    val chat = mutableChat(paneId)
+                    val now = chat.value
+                    chat.value = when (obj["mode"]?.jsonPrimitive?.content) {
+                        "reset" -> ChatState(items, hasOlder, unavailable, loaded = true)
+                        "older" -> now.copy(items = merge(now.items, items), hasOlder = hasOlder, loadingOlder = false)
+                        else -> now.copy(items = merge(now.items, items), hasOlder = hasOlder, loaded = true)
+                    }
                 }
                 "ack" -> {
                     val opId = obj["op_id"]?.jsonPrimitive?.contentOrNull ?: return

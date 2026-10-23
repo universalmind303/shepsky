@@ -28,6 +28,9 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `auth` | `token` | must be first |
 | `watch_pane` | `pane_id` | start `terminal_frame`s (≤ 8 watches/conn) |
 | `unwatch_pane` | `pane_id` | |
+| `watch_chat` | `pane_id` | start `chat` pushes: the agent's conversation (≤ 4 watches/conn) |
+| `unwatch_chat` | `pane_id` | |
+| `chat_older` | `pane_id` | one more page before the oldest item sent |
 | `prompt` | `pane_id`, `text`, `op_id?` | submit a prompt to the agent (≤ 8 KiB) |
 | `send_keys` | `pane_id`, `keys[]`, `op_id?` | e.g. `["1"]`, `["enter"]`, `["esc"]` (≤ 32 keys) |
 | `focus_agent` | `pane_id`, `op_id?` | marks looked-at; clears `done` |
@@ -43,6 +46,7 @@ protocol break: bump `PROTO_VERSION` in both places.
 | `notify` | `note: {kind: needs_input\|finished, pane_id, agent_label, title?, workspace_label?}` |
 | `terminal_frame` | `pane_id`, `seq`, `frame: {cols, rows, lines: [[span]]}` |
 | `watch_error` | `pane_id`, `message` (watch stays alive; pane may be closing) |
+| `chat` | `pane_id`, `mode: reset\|append\|older`, `items[]`, `has_older`, `unavailable?` |
 | `ack` | `op_id?`, `pane_id?` |
 | `error` | `code`, `message`, `op_id?` |
 | `pong` | |
@@ -65,6 +69,35 @@ Terminal spans: `{t, fg?, bg?, b?, i?, u?, r?}`. A color is either a
 absent means the theme's default fg/bg. `r` is reverse video: the phone swaps
 fg and bg after resolving them. Flags absent = false. Lines are pre-trimmed
 of unstyled trailing blanks.
+
+## Chat
+
+The chat view is the agent's conversation read from its own transcript
+(Claude Code, Codex and pi keep JSONL logs), not from the screen. herdr's
+integrations report which session each agent is in (`agent_session`); the
+bridge looks that up only inside the agent's own folder (`~/.claude/projects`,
+`~/.codex/sessions`, `~/.pi/agent/sessions`). The phone names a pane, never a
+file. Codex often doesn't report, so the bridge falls back to the newest
+recent rollout started in the agent's directory, told apart by thread name
+when codex agents share one. With nothing to go on, `chat` comes back as a
+`reset` with no items and an `unavailable` reason; the terminal still works.
+
+`chat` modes: `reset` replaces what the phone holds (the latest page, or a
+new conversation), `append` adds items or replaces ones with the same `id`
+(a tool finishing), `older` goes in front. Items are ordered by `id`.
+
+An item is `{id, kind, ...}`:
+
+| kind | fields |
+|---|---|
+| `prompt` | `text` |
+| `reply` | `text` (markdown-ish) |
+| `thinking` | `text?` (absent when the agent keeps it private) |
+| `tool` | `name`, `summary`, `detail?`, `output?`, `status: running\|ok\|error` |
+| `question` | `questions: [{header?, question, options[], multi?}]`, `answer?` |
+| `notice` | `text` (compaction, interrupts, slash commands) |
+
+Long text is trimmed (output keeps its start and end).
 
 ## Starting agents
 

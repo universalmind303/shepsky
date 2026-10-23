@@ -63,6 +63,34 @@ data class NoteView(
     val workspace_label: String? = null,
 )
 
+/**
+ * One entry of an agent's conversation, flattened: [kind] is prompt, reply,
+ * thinking, tool, question or notice, and says which fields are set.
+ * Bigger [id] = later in the conversation; same [id] again = a replacement.
+ */
+@Serializable
+data class ChatItem(
+    val id: Long,
+    val kind: String,
+    val text: String = "",
+    val name: String = "",
+    val summary: String = "",
+    val detail: String? = null,
+    val output: String? = null,
+    /** For tools: running, ok or error. */
+    val status: String = "",
+    val questions: List<QuestionView> = emptyList(),
+    val answer: String? = null,
+)
+
+@Serializable
+data class QuestionView(
+    val header: String? = null,
+    val question: String = "",
+    val options: List<String> = emptyList(),
+    val multi: Boolean = false,
+)
+
 @Serializable
 data class Frame(
     val cols: Int = 0,

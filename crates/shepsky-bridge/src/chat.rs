@@ -109,7 +109,7 @@ async fn follow(
             asked = older_rx.recv() => {
                 if asked.is_none() { return }
                 if let Some(t) = tail.as_mut() {
-                    let items = t.older().unwrap_or_default();
+                    let items = tokio::task::block_in_place(|| t.older()).unwrap_or_default();
                     let msg = chat(&pane_id, ChatMode::Older, items, t.start > 0, None);
                     if out.send(msg).await.is_err() { return }
                 }
@@ -130,7 +130,7 @@ async fn follow(
             .and_then(|agent| resolve(&agent, &pane_id, &places, &ui_rx).map(|t| (t, agent)));
             match found {
                 Ok((target, agent)) if tail.as_ref().map(|t| &t.target) != Some(&target) => {
-                    match Tail::open(target, &agent, &places) {
+                    match tokio::task::block_in_place(|| Tail::open(target, &agent, &places)) {
                         Ok((t, items)) => {
                             let msg = chat(&pane_id, ChatMode::Reset, items, t.start > 0, None);
                             tail = Some(t);
@@ -155,7 +155,7 @@ async fn follow(
         }
 
         let Some(t) = tail.as_mut() else { continue };
-        match t.newer() {
+        match tokio::task::block_in_place(|| t.newer()) {
             Ok(items) if items.is_empty() => {}
             Ok(items) => {
                 let msg = chat(&pane_id, ChatMode::Append, items, t.start > 0, None);
@@ -413,10 +413,13 @@ impl Tail {
             let from = self.start.saturating_sub(chunk);
             let at = from.saturating_sub(1);
             let buf = read_range(&mut file, at, self.start)?;
+            // The newline just before `start` ends the previous line; the
+            // line boundary we need is an earlier one.
+            let searchable = &buf[..buf.len() - 1];
             let lines_start = if from == 0 {
                 0
             } else {
-                match buf.iter().position(|b| *b == b'\n') {
+                match searchable.iter().position(|b| *b == b'\n') {
                     Some(i) => at + i as u64 + 1,
                     // One line longer than the chunk: read further back.
                     None if chunk < MAX_LINE => {
@@ -538,8 +541,10 @@ mod tests {
         let path = dir.join("t.jsonl");
         let mut file = File::create(&path).unwrap();
         for n in 0..(PAGE * 3) {
-            // Padding makes lines straddle chunk edges.
-            file.write_all(line(&format!("{n} {}", "x".repeat(n * 37 % 3000))).as_bytes()).unwrap();
+            // Padding makes lines straddle chunk edges; every 50th is longer
+            // than a whole chunk (Claude logs multi-MB lines).
+            let pad = if n % 50 == 7 { CHUNK as usize * 3 } else { n * 37 % 3000 };
+            file.write_all(line(&format!("{n} {}", "x".repeat(pad))).as_bytes()).unwrap();
         }
         file.write_all(b"{\"type\":\"assistant\",\"partial").unwrap(); // still being written
         file.flush().unwrap();

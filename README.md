@@ -21,6 +21,10 @@ Your agents run in herdr on your Mac. shepsky puts them in your pocket:
   app closed (and after a reboot).
 - **Unblock with one tap** — a notification opens the agent with its latest
   output on screen, so you read the question before answering 1/2/3/Enter/Esc.
+- **Read the conversation, not just the screen** — prompts, replies, tool
+  calls and their results, from each agent's own transcript (Claude Code,
+  Codex, pi), with the whole history a scroll away. The live terminal is one
+  tab over.
 - **Send new prompts** and **watch the live terminal**, in your herdr theme.
 - **Start a new agent** (claude, codex or pi) in a new workspace or a new tab
   of an existing one, right from the phone.
@@ -181,6 +185,12 @@ scripts/demo-session.sh down
   prompt while the agent is waiting on a question. If the agent has exited
   and left a shell behind, nothing is typed; the app says so. The pane-level
   methods are used only by `--demo`, for the sandboxed demo session.
+- **Conversations come from the agents' own logs.** The chat view reads the
+  transcript herdr's integration points to, and only inside that agent's
+  folder (`~/.claude/projects`, `~/.codex/sessions`, `~/.pi/agent/sessions`);
+  the phone asks for a pane, never a file. Transcripts hold more than the
+  screen (full tool output, the agent's thinking when it shares it), so the
+  token guards that too.
 - **Starting agents is fenced in.** The phone can start only claude, codex
   or pi, with no command-line arguments (so no flags that skip their
   permission prompts), and only in an existing directory inside your home
@@ -196,9 +206,12 @@ scripts/demo-session.sh down
 
 ## Status
 
-0.1. Known gaps: the terminal mirrors the screen but isn't a full terminal
-(tap it to type a prompt; the key bar sends keys); one bridge per herdr session; per-agent mutes and QR pairing aren't
-built yet. Notifications are live only: if an agent finishes or starts asking
+0.1. Known gaps: the terminal tab mirrors the screen but isn't a full
+terminal (no scrollback there; the chat tab has the history). The chat view
+covers Claude Code, Codex and pi; other agents get the terminal. A codex
+agent sharing a directory with another codex agent needs a named thread to be
+told apart. One bridge per herdr session; per-agent mutes and QR pairing
+aren't built yet. Notifications are live only: if an agent finishes or starts asking
 while your phone is offline, the overview catches up when it reconnects, but
 you won't get a notification for it. Opening a *finished* agent marks it seen, which also switches herdr
 on your Mac to that agent's tab. The protocol may change before 1.0

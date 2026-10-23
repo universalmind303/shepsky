@@ -15,13 +15,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -31,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -41,6 +47,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.shepsky.core.ConnState
@@ -57,9 +64,9 @@ private const val MIN_TERMINAL_SP = 7f
 private const val MAX_TERMINAL_SP = 22f
 
 /**
- * One agent: its live terminal, a prompt line, and the keys. Opening it is
- * one tap from the overview or a notification; the question an agent is
- * asking is right there in its terminal.
+ * One agent: its conversation (or its live terminal), a prompt line, and
+ * the keys. Opening it is one tap from the overview or a notification;
+ * while it waits on you, its question is at the bottom of the chat.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -67,6 +74,7 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
     val state by ShepskyRepo.state.collectAsState()
     val conn by ShepskyRepo.conn.collectAsState()
     val frame by ShepskyRepo.frameFlow(paneId).collectAsState()
+    val chat by ShepskyRepo.chatFlow(paneId).collectAsState()
     val agent = state.agents.firstOrNull { it.pane_id == paneId }
     val connected = conn == ConnState.Connected
     val blocked = agent?.status == "blocked"
@@ -90,8 +98,15 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
 
     DisposableEffect(paneId) {
         ShepskyRepo.watchPane(paneId)
-        onDispose { ShepskyRepo.unwatchPane(paneId) }
+        ShepskyRepo.watchChat(paneId)
+        onDispose {
+            ShepskyRepo.unwatchPane(paneId)
+            ShepskyRepo.unwatchChat(paneId)
+        }
     }
+    // Chat unless there's no conversation to show, until you pick a tab.
+    var picked by rememberSaveable(paneId) { mutableStateOf<String?>(null) }
+    val tab = picked ?: if (chat.unavailable != null && chat.items.isEmpty()) TERMINAL else CHAT
     // Looking at a finished agent clears "finished". Only then: agent.focus
     // also switches herdr on the Mac to this agent's tab.
     LaunchedEffect(paneId, connected, agent?.status) {
@@ -133,7 +148,15 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnBanner(onOpenSettings)
+            if (agent != null) Tabs(tab, onPick = { picked = it })
             when {
+                agent != null && tab == CHAT -> ChatView(
+                    chat = chat,
+                    blocked = blocked,
+                    frame = frame,
+                    onLoadOlder = { ShepskyRepo.loadOlderChat(paneId) },
+                    onShowTerminal = { picked = TERMINAL },
+                )
                 agent != null -> TerminalView(frame) {
                     promptFocus.requestFocus()
                     keyboard?.show()
@@ -146,6 +169,39 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
                 }
             }
         }
+    }
+}
+
+private const val CHAT = "chat"
+private const val TERMINAL = "terminal"
+
+/** `chat  terminal`, the current one underlined in the accent. */
+@Composable
+private fun Tabs(tab: String, onPick: (String) -> Unit) {
+    val t = LocalTerm.current
+    Column {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+            listOf(CHAT, TERMINAL).forEach { name ->
+                val on = name == tab
+                Column(
+                    Modifier
+                        .heightIn(min = 44.dp)
+                        .clickable { onPick(name) }
+                        .padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        name,
+                        color = if (on) t.accent else t.dim,
+                        fontWeight = if (on) FontWeight.Bold else null,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Box(Modifier.padding(top = 4.dp).width(32.dp).height(2.dp).background(if (on) t.accent else t.bg))
+                }
+            }
+        }
+        Rule()
     }
 }
 
