@@ -196,6 +196,12 @@ pub struct AgentView {
     pub cwd: Option<String>,
     #[serde(default)]
     pub focused: bool,
+    /// herdr's counter at this agent's last state change: bigger = more
+    /// recently active. Only state changes count (herdr has no output
+    /// events), so an agent busy printing without changing state doesn't
+    /// move; it resets when herdr restarts.
+    #[serde(default)]
+    pub state_change_seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -261,6 +267,7 @@ impl StateView {
                     .map(str::to_string),
                 cwd: a.cwd.as_deref().map(|cwd| tildify(cwd, home.as_deref())),
                 focused: a.focused,
+                state_change_seq: a.state_change_seq,
             })
             .collect();
         let mut uses: std::collections::BTreeMap<String, usize> = Default::default();

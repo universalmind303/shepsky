@@ -60,7 +60,9 @@ workspaces and agents are, most-used first, home as `~`.
 
 `agents[]` is pre-sorted needs-attention-first:
 `{pane_id, terminal_id, status: idle|working|blocked|done|unknown, label,
-kind?, title?, workspace_id, workspace_label?, cwd?, focused}`. `cwd` shows
+kind?, title?, workspace_id, workspace_label?, cwd?, focused, state_change_seq}`
+(`state_change_seq`: herdr's counter at the agent's last state change; bigger
+is more recent). `cwd` shows
 the Mac's home directory as `~`.
 
 Terminal spans: `{t, fg?, bg?, b?, i?, u?, r?}`. A color is either a

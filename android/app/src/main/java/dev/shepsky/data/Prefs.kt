@@ -57,6 +57,18 @@ object Prefs {
         prefs(context).edit().putFloat("terminal_sp", sp).apply()
     }
 
+    /** How the overview orders agents: [SORT_SPACE], [SORT_NAME] or [SORT_RECENT]. */
+    fun overviewSort(context: Context): String =
+        prefs(context).getString("overview_sort", SORT_SPACE) ?: SORT_SPACE
+
+    fun setOverviewSort(context: Context, sort: String) {
+        prefs(context).edit().putString("overview_sort", sort).apply()
+    }
+
+    const val SORT_SPACE = "space"
+    const val SORT_NAME = "name"
+    const val SORT_RECENT = "recent"
+
     /** The agent kind last started from the phone. */
     fun lastStartKind(context: Context): String? =
         prefs(context).getString("start_kind", null)

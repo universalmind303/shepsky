@@ -52,6 +52,8 @@ data class AgentView(
     val workspace_label: String? = null,
     val cwd: String? = null,
     val focused: Boolean = false,
+    /** Bigger = changed state more recently (herdr's counter). */
+    val state_change_seq: Long = 0,
 )
 
 @Serializable
