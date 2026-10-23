@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive icon foreground. Generated from the shepsky pixel-art logo; edit the grid, not this file. -->
+<!-- Adaptive icon foreground. Generated from the shepsky pixel-art logo (assets/logo); edit the grid, not this file. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -14,7 +14,8 @@
         <path android:fillColor="#FF1F1C2B" android:pathData="M5,2h1v1h-1zM19,2h1v1h-1zM5,3h1v1h-1zM19,3h1v1h-1zM4,4h2v1h-2zM8,4h1v1h-1zM16,4h1v1h-1zM19,4h2v1h-2zM4,5h2v1h-2zM9,5h1v1h-1zM15,5h1v1h-1zM19,5h2v1h-2zM4,6h2v1h-2zM9,6h2v1h-2zM14,6h2v1h-2zM19,6h2v1h-2zM3,7h3v1h-3zM8,7h4v1h-4zM13,7h4v1h-4zM19,7h3v1h-3zM3,8h9v1h-9zM13,8h9v1h-9zM2,9h10v1h-10zM13,9h10v1h-10zM2,10h6v1h-6zM10,10h5v1h-5zM17,10h6v1h-6zM2,11h6v1h-6zM10,11h5v1h-5zM17,11h6v1h-6zM2,12h7v1h-7zM16,12h7v1h-7zM2,13h6v1h-6zM17,13h6v1h-6zM2,14h5v1h-5zM18,14h5v1h-5zM3,15h5v1h-5zM17,15h5v1h-5zM3,16h6v1h-6zM16,16h6v1h-6zM4,17h5v1h-5zM16,17h5v1h-5zM5,18h4v1h-4zM16,18h4v1h-4z"/>
         <path android:fillColor="#FF3A3550" android:pathData="M6,2h1v1h-1zM18,2h1v1h-1zM6,3h2v1h-2zM17,3h2v1h-2zM6,4h2v1h-2zM17,4h2v1h-2zM6,5h3v1h-3zM16,5h3v1h-3zM6,6h3v1h-3zM16,6h3v1h-3zM6,7h2v1h-2zM17,7h2v1h-2z"/>
         <path android:fillColor="#FFF4F1EA" android:pathData="M12,7h1v1h-1zM12,8h1v1h-1zM12,9h1v1h-1zM8,10h1v1h-1zM15,10h1v1h-1z"/>
-        <path android:fillColor="#FF9A5B2E" android:pathData="M9,10h1v1h-1zM16,10h1v1h-1zM8,11h2v1h-2zM15,11h2v1h-2z"/>
+        <path android:fillColor="#FF50FA7B" android:pathData="M9,10h1v1h-1zM16,10h1v1h-1zM8,11h1v1h-1zM16,11h1v1h-1z"/>
+        <path android:fillColor="#FF050508" android:pathData="M9,11h1v1h-1zM15,11h1v1h-1z"/>
         <path android:fillColor="#FF55506E" android:pathData="M9,12h1v1h-1zM15,12h1v1h-1zM8,13h3v1h-3zM14,13h3v1h-3zM8,14h4v1h-4zM13,14h4v1h-4z"/>
         <path android:fillColor="#FF8A85A6" android:pathData="M10,12h1v1h-1z"/>
         <path android:fillColor="#FF08070C" android:pathData="M11,12h4v1h-4zM11,13h3v1h-3z"/>
