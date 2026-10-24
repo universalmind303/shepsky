@@ -145,7 +145,9 @@ cat <<EOF
 All set. In the emulator, tap Connect (and allow notifications).
 Then try:
   - tap an agent that "needs input" and answer it with 1 / 2 / 3
-  - send an idle agent a prompt and watch it work in the terminal
+  - send an idle agent a prompt and watch its conversation
+  - pull past the top of the terminal tab to scroll back through its log
+  - tap [+] to start another (fake) agent, or long-press one to rename or close it
   - leave the app: notifications arrive when an agent needs you
 
 Stop everything with: scripts/try-it.sh down

@@ -178,7 +178,7 @@ function startWork(what) {
       return;
     }
     out(`${stamp()}   ${colorLine(steps[i])}`);
-    if (/^[✓✗]/.test(steps[i])) say(steps[i]);
+    if (/^([✓✗]|warning)/.test(steps[i])) say(steps[i]);
     else toolResult(toolUse("Bash", { command: steps[i] }), "ok");
     i += 1;
     workTimer = setTimeout(tick, 2500 + Math.random() * 2500);

@@ -10,8 +10,9 @@ protocol break: bump `PROTO_VERSION` in both places.
 
 - The bridge pushes the **full `state`** on every change (it's a few KB).
   No deltas: reconnect = `auth`, then the next `state` replaces everything.
-- `notify` and `terminal_frame` are side streams; missing one is harmless
-  (frames are full screens, notifications re-derive from transitions).
+- `notify`, `terminal_frame` and `chat` are side streams; missing one is
+  harmless (frames are full screens, notifications re-derive from
+  transitions, a chat watch re-sent after a reconnect starts with a `reset`).
 - Writes are fire-and-ack: client attaches an optional `op_id`, bridge answers
   `ack` or `error` with the same `op_id`.
 
@@ -58,6 +59,9 @@ protocol break: bump `PROTO_VERSION` in both places.
 (`rose-pine`, `catppuccin-latte`…); `dark`/`light` are set when herdr's
 `auto_switch` is on. Re-read on every connection.
 
+`workspaces[]`: `{workspace_id, label?, number?, status?, focused}` (`number`
+is herdr's, for telling apart workspaces that share a label).
+
 `places[]` are directories worth offering for a new workspace: where your
 workspaces and agents are, most-used first, home as `~`.
 
@@ -74,6 +78,11 @@ Terminal spans: `{t, fg?, bg?, b?, i?, u?, r?}`. A color is either a
 absent means the theme's default fg/bg. `r` is reverse video: the phone swaps
 fg and bg after resolving them. Flags absent = false. Lines are pre-trimmed
 of unstyled trailing blanks.
+
+Proto 2 (theme-aware colors and `r`) replaced proto 1's fixed xterm hex for
+ANSI 0–15 and pre-swapped reverse video. Everything since (chat, starting,
+renaming, closing, scrolling, `state_change_seq`, `places`, frame `scroll`)
+was added without breaking proto 2: older apps ignore what they don't know.
 
 ## Chat
 
@@ -148,14 +157,12 @@ If the agent doesn't start, the workspace/tab made for it is closed again.
 With `serve --demo --demo-agent <cmd>`, the bridge types `<cmd> --kind <kind>`
 into the new pane instead (the demo's fake agents).
 
-Proto 2 (theme-aware colors and `r`) replaced proto 1's fixed xterm hex for
-ANSI 0–15 and pre-swapped reverse video.
-
 ## Error codes
 
-Bridge: `unauthorized`, `bad_message`, `not_found`, `too_many_watches`,
-`too_large`, `bad_keys`, and for `start_agent`: `unsupported_kind`,
-`bad_directory`, `invalid_agent_name` (also for `rename_agent`).
+Bridge: `unauthorized`, `bad_message`, `not_found` (no such pane, or no
+agent in it), `too_many_watches`, `too_large`, `bad_keys`, `bad_scroll`, and
+for `start_agent`: `unsupported_kind`, `bad_directory`, `invalid_agent_name`
+(also for `rename_agent`).
 
 herdr's own codes pass through on failed writes, notably `agent_blocked`
 (prompt refused while the agent waits on a question), `agent_not_ready` (the
