@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -80,18 +81,31 @@ fun TopLine(
     line: AnnotatedString,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+) = TopLine(listOf(line), onBack, actions)
+
+/**
+ * The top bar, with the status line in [lines] from fullest to shortest:
+ * the first that fits the row is shown (the last, cut short, if none do),
+ * so a narrow screen drops whole segments instead of ending in `…`.
+ */
+@Composable
+fun TopLine(
+    lines: List<AnnotatedString>,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val t = LocalTerm.current
+    val style = MaterialTheme.typography.bodyMedium
+    val measurer = rememberTextMeasurer()
     Column(Modifier.background(t.bg).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) TapText("←", onBack, contentDescription = "Back") else Spacer(Modifier.width(16.dp))
-            Text(
-                line,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            BoxWithConstraints(Modifier.weight(1f)) {
+                val line = lines.firstOrNull {
+                    measurer.measure(it, style, maxLines = 1, softWrap = false).size.width <= constraints.maxWidth
+                } ?: lines.last()
+                Text(line, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             actions()
         }
         Rule()

@@ -146,13 +146,17 @@ fun AgentScreen(paneId: String, onOpenSettings: () -> Unit, onBack: () -> Unit) 
 
     Scaffold(
         topBar = {
+            val name = Seg(agent?.label ?: "agent", bold = true)
+            val workspace = agent?.workspace_label?.let { Seg(it, t.dim) }
+            val status = agent?.let { Seg("[${statusGlyph(it.status)}] ${statusLabel(it.status)}", statusColor(it.status)) }
+            val glyph = agent?.let { Seg("[${statusGlyph(it.status)}]", statusColor(it.status)) }
             TopLine(
-                segments(
-                    Seg(agent?.label ?: "agent", bold = true),
-                    *listOfNotNull(
-                        agent?.workspace_label?.let { Seg(it, t.dim) },
-                        agent?.let { Seg("[${statusGlyph(it.status)}] ${statusLabel(it.status)}", statusColor(it.status)) },
-                    ).toTypedArray(),
+                // On a narrow screen the workspace goes first, then the
+                // status word (its glyph stays).
+                listOf(
+                    segments(*listOfNotNull(name, workspace, status).toTypedArray()),
+                    segments(*listOfNotNull(name, status).toTypedArray()),
+                    segments(*listOfNotNull(name, glyph).toTypedArray()),
                 ),
                 onBack = onBack,
                 actions = {

@@ -56,13 +56,15 @@ fun OverviewScreen(
 
     Scaffold(
         topBar = {
+            val name = Seg("shepsky", t.accent, bold = true)
+            val agents = Seg(if (count == 1) "1 agent" else "$count agents")
+            val link = linkSeg()
             TopLine(
-                // Theme last: on a narrow screen it's the part that can go.
-                segments(
-                    Seg("shepsky", t.accent, bold = true),
-                    Seg(if (count == 1) "1 agent" else "$count agents"),
-                    linkSeg(),
-                    Seg(t.id, t.dim),
+                // On a narrow screen the theme goes first, then the count.
+                listOf(
+                    segments(name, agents, link, Seg(t.id, t.dim)),
+                    segments(name, agents, link),
+                    segments(name, link),
                 ),
                 actions = {
                     if (canStart) TapText("[+]", onNewAgent, contentDescription = "New agent")
